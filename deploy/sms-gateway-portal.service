@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/sms-gateway
 EnvironmentFile=/opt/sms-gateway/.env
+Environment=APP_ROLE=portal
 Environment=APP_PORT=8880
 ExecStart=/opt/sms-gateway/.venv/bin/python -m api
 Restart=always

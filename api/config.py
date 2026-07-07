@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     unifi_verify_tls: bool = False
     unifi_auth_minutes: int = 1440
 
+    hotspot_portal_port: int = 8880
     hotspot_admin_port: int = 8089
     hotspot_portal_title: str = "Welcome to Olshaniki"
     hotspot_logo_path: str = "./data/hotspot_logo.png"
