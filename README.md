@@ -201,16 +201,33 @@ systemctl restart sms-gateway sms-gateway-portal
 
 ## SMS backend
 
-Проект умеет отправлять SMS двумя способами.
+Проект умеет отправлять SMS двумя способами. Основной сценарий для этого
+проекта - отдельный Wiren Board отправляет SMS, а LXC контейнер публикует
+запрос в MQTT.
 
-`SMS_BACKEND=mmcli` отправляет SMS напрямую через ModemManager:
+`SMS_BACKEND=mqtt` публикует запросы на отправку SMS в MQTT-топик Wiren Board:
+
+```env
+SMS_BACKEND=mqtt
+WB_MQTT_HOST=<ip-wiren-board>
+WB_MQTT_PORT=1883
+WB_MQTT_USERNAME=
+WB_MQTT_PASSWORD=
+WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
+```
+
+Используйте этот режим, если модем подключен к Wiren Board или SMS отправляет
+другой сервис, доступный через MQTT.
+
+`SMS_BACKEND=mmcli` нужен только если GSM/LTE-модем доступен прямо внутри LXC
+контейнера на Proxmox:
 
 ```env
 SMS_BACKEND=mmcli
 MMCLI_MODEM_ID=auto
 ```
 
-Если используется этот режим, установите ModemManager:
+Если используется `mmcli`, установите ModemManager:
 
 ```bash
 apt install -y modemmanager
@@ -219,19 +236,6 @@ apt install -y modemmanager
 Для USB/LTE-модема внутри LXC нужно пробросить устройство с Proxmox host в
 контейнер. В зависимости от модема и настроек хоста privileged container может
 быть проще.
-
-`SMS_BACKEND=mqtt` публикует запросы на отправку SMS в MQTT-топик:
-
-```env
-SMS_BACKEND=mqtt
-WB_MQTT_HOST=127.0.0.1
-WB_MQTT_PORT=1883
-WB_MQTT_USERNAME=
-WB_MQTT_PASSWORD=
-WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
-```
-
-Этот режим удобен, если SMS отправляет другой контроллер или отдельный сервис.
 
 ## API
 
@@ -255,7 +259,12 @@ APP_SECRET=<значение-из-команды-выше>
 APP_HOST=0.0.0.0
 APP_PORT=8088
 DATABASE_PATH=./data/sms_gateway.sqlite3
-SMS_BACKEND=mmcli
+SMS_BACKEND=mqtt
+WB_MQTT_HOST=<ip-wiren-board>
+WB_MQTT_PORT=1883
+WB_MQTT_USERNAME=
+WB_MQTT_PASSWORD=
+WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
 MMCLI_MODEM_ID=auto
 OTP_MESSAGE_TEMPLATE=Your code: {code}
 ```
@@ -318,7 +327,12 @@ APP_HOST=0.0.0.0
 APP_PORT=8088
 DATABASE_PATH=./data/sms_gateway.sqlite3
 
-SMS_BACKEND=mmcli
+SMS_BACKEND=mqtt
+WB_MQTT_HOST=<ip-wiren-board>
+WB_MQTT_PORT=1883
+WB_MQTT_USERNAME=
+WB_MQTT_PASSWORD=
+WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
 MMCLI_MODEM_ID=auto
 OTP_MESSAGE_TEMPLATE=Wi-Fi code: {code}
 

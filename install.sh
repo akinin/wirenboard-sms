@@ -232,7 +232,7 @@ if component_enabled hotspot; then
   prompt portal_port "Portal port" "8880"
   prompt admin_port "Admin port" "8089"
 fi
-prompt sms_backend "SMS backend: mqtt or mmcli" "mmcli"
+prompt sms_backend "SMS backend: mqtt or mmcli" "mqtt"
 prompt mmcli_modem_id "MMCLI modem id" "auto"
 unifi_base_url=""
 unifi_username=""

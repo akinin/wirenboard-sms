@@ -82,9 +82,23 @@ http://<container-ip>:8089/admin/
 
 ## SMS backend
 
-`install.sh` спросит, как отправлять SMS.
+`install.sh` спросит, как отправлять SMS. По умолчанию используется `mqtt`,
+потому что основной сценарий - SMS отправляет отдельный Wiren Board.
 
-`mmcli` отправляет SMS напрямую через ModemManager:
+`mqtt` публикует запросы на отправку SMS в MQTT-топик Wiren Board:
+
+```env
+SMS_BACKEND=mqtt
+WB_MQTT_HOST=<ip-wiren-board>
+WB_MQTT_PORT=1883
+WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
+```
+
+Используйте этот режим, если модем подключен к Wiren Board или SMS отправляет
+другой сервис, доступный через MQTT.
+
+`mmcli` отправляет SMS напрямую через ModemManager и подходит только если
+GSM/LTE-модем доступен прямо внутри LXC контейнера на Proxmox:
 
 ```env
 SMS_BACKEND=mmcli
@@ -93,17 +107,6 @@ MMCLI_MODEM_ID=auto
 
 Для USB/LTE-модема внутри LXC нужно пробросить устройство с Proxmox host в
 контейнер. В зависимости от модема privileged container может быть проще.
-
-`mqtt` публикует запросы на отправку SMS в MQTT-топик:
-
-```env
-SMS_BACKEND=mqtt
-WB_MQTT_HOST=127.0.0.1
-WB_MQTT_PORT=1883
-WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
-```
-
-Этот режим нужен, если SMS отправляет другой контроллер или отдельный сервис.
 
 ## После установки
 
