@@ -1,0 +1,17 @@
+[Unit]
+Description=SMS Gateway UniFi Portal
+After=network-online.target sms-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sms-gateway
+EnvironmentFile=/opt/sms-gateway/.env
+Environment=APP_PORT=8880
+ExecStart=/opt/sms-gateway/.venv/bin/python -m api
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
