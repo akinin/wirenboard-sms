@@ -86,12 +86,28 @@ git pull --ff-only
 pip install --upgrade pip
 pip install -r requirements.txt
 
+set -a
+. ./.env
+set +a
+
+cp deploy/sms-gateway.service /etc/systemd/system/sms-gateway.service
+cp deploy/sms-gateway-portal.service /etc/systemd/system/sms-gateway-portal.service
+cp deploy/sms-gateway-admin.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#WorkingDirectory=/opt/sms-gateway#WorkingDirectory=\$INSTALL_DIR#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#EnvironmentFile=/opt/sms-gateway/.env#EnvironmentFile=\$INSTALL_DIR/.env#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#ExecStart=/opt/sms-gateway/.venv/bin/python#ExecStart=\$INSTALL_DIR/.venv/bin/python#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#Environment=APP_PORT=8880#Environment=APP_PORT=\${HOTSPOT_PORTAL_PORT:-8880}#g" /etc/systemd/system/sms-gateway-portal.service
+sed -i "s#Environment=APP_PORT=8089#Environment=APP_PORT=\${HOTSPOT_ADMIN_PORT:-8089}#g" /etc/systemd/system/sms-gateway-admin.service
+
 systemctl daemon-reload
 if systemctl is-enabled sms-gateway >/dev/null 2>&1; then
   systemctl restart sms-gateway
 fi
 if systemctl is-enabled sms-gateway-portal >/dev/null 2>&1; then
   systemctl restart sms-gateway-portal
+fi
+if systemctl is-enabled sms-gateway-admin >/dev/null 2>&1; then
+  systemctl restart sms-gateway-admin
 fi
 
 echo "SMS Gateway updated."
@@ -107,8 +123,15 @@ install_motd() {
 export SMS_GATEWAY_MOTD_SHOWN=1
 
 sms_gateway_ips="\$(hostname -I 2>/dev/null | xargs || true)"
+sms_gateway_ip="\${sms_gateway_ips%% *}"
+if [ -r "$INSTALL_DIR/.env" ]; then
+  set -a
+  . "$INSTALL_DIR/.env"
+  set +a
+fi
 sms_gateway_api_state="\$(systemctl is-active sms-gateway 2>/dev/null || true)"
 sms_gateway_portal_state="\$(systemctl is-active sms-gateway-portal 2>/dev/null || true)"
+sms_gateway_admin_state="\$(systemctl is-active sms-gateway-admin 2>/dev/null || true)"
 
 cat <<'MOTD'
 
@@ -124,11 +147,19 @@ cat <<'MOTD'
  Config:        $INSTALL_DIR/.env
  Data:          $INSTALL_DIR/data
  Update:        sms-gateway-update
+MOTD
+if [ -n "\$sms_gateway_ip" ]; then
+  printf ' API:           http://%s:%s/health\n' "\$sms_gateway_ip" "\${APP_PORT:-8088}"
+  printf ' Portal:        http://%s:%s/\n' "\$sms_gateway_ip" "\${HOTSPOT_PORTAL_PORT:-8880}"
+  printf ' Admin:         http://%s:%s/admin/\n' "\$sms_gateway_ip" "\${HOTSPOT_ADMIN_PORT:-8089}"
+fi
+cat <<'MOTD'
 
  Services:
 MOTD
 printf '   sms-gateway         %s\n' "\${sms_gateway_api_state:-unknown}"
 printf '   sms-gateway-portal  %s\n' "\${sms_gateway_portal_state:-unknown}"
+printf '   sms-gateway-admin   %s\n' "\${sms_gateway_admin_state:-unknown}"
 cat <<'MOTD'
 
  Useful commands:
@@ -136,8 +167,10 @@ cat <<'MOTD'
    sms-gateway-update
    systemctl status sms-gateway
    systemctl status sms-gateway-portal
+   systemctl status sms-gateway-admin
    journalctl -u sms-gateway -f
    journalctl -u sms-gateway-portal -f
+   journalctl -u sms-gateway-admin -f
 
 ============================================================
 
@@ -191,11 +224,13 @@ elif ! component_enabled api && ! component_enabled hotspot; then
 fi
 api_port="8088"
 portal_port="8880"
+admin_port="8089"
 if component_enabled api; then
   prompt api_port "Main API port" "8088"
 fi
 if component_enabled hotspot; then
   prompt portal_port "Portal port" "8880"
+  prompt admin_port "Admin port" "8089"
 fi
 prompt sms_backend "SMS backend: mqtt or mmcli" "mmcli"
 prompt mmcli_modem_id "MMCLI modem id" "auto"
@@ -205,6 +240,7 @@ unifi_password=""
 unifi_site="default"
 unifi_verify_tls="false"
 unifi_auth_minutes="1440"
+hotspot_portal_title="Welcome to Olshaniki"
 telegram_chat_id=""
 telegram_bot_token=""
 if component_enabled hotspot; then
@@ -214,6 +250,7 @@ if component_enabled hotspot; then
   prompt unifi_site "UniFi site" "default"
   prompt unifi_verify_tls "Verify UniFi TLS: true or false" "false"
   prompt unifi_auth_minutes "Guest authorization minutes" "1440"
+  prompt hotspot_portal_title "Hotspot portal welcome text" "Welcome to Olshaniki"
   prompt telegram_chat_id "Telegram chat id, blank to disable" ""
   if [ -n "$telegram_chat_id" ]; then
     prompt_secret telegram_bot_token "Telegram bot token"
@@ -253,6 +290,12 @@ UNIFI_SITE=$unifi_site
 UNIFI_VERIFY_TLS=$unifi_verify_tls
 UNIFI_AUTH_MINUTES=$unifi_auth_minutes
 
+# Hotspot admin and branding
+HOTSPOT_PORTAL_PORT=$portal_port
+HOTSPOT_ADMIN_PORT=$admin_port
+HOTSPOT_PORTAL_TITLE=$(quote_env "$hotspot_portal_title")
+HOTSPOT_LOGO_PATH=./data/hotspot_logo
+
 # Hotspot audit and Telegram notifications
 HOTSPOT_ACCESS_LOG_PATH=./data/hotspot_access.csv
 TELEGRAM_BOT_TOKEN=$(quote_env "$telegram_bot_token")
@@ -270,11 +313,13 @@ install -d -m 755 data
 
 cp deploy/sms-gateway.service /etc/systemd/system/sms-gateway.service
 cp deploy/sms-gateway-portal.service /etc/systemd/system/sms-gateway-portal.service
-sed -i "s#WorkingDirectory=/opt/sms-gateway#WorkingDirectory=$INSTALL_DIR#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service
-sed -i "s#EnvironmentFile=/opt/sms-gateway/.env#EnvironmentFile=$INSTALL_DIR/.env#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service
-sed -i "s#ExecStart=/opt/sms-gateway/.venv/bin/python#ExecStart=$INSTALL_DIR/.venv/bin/python#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service
+cp deploy/sms-gateway-admin.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#WorkingDirectory=/opt/sms-gateway#WorkingDirectory=$INSTALL_DIR#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#EnvironmentFile=/opt/sms-gateway/.env#EnvironmentFile=$INSTALL_DIR/.env#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#ExecStart=/opt/sms-gateway/.venv/bin/python#ExecStart=$INSTALL_DIR/.venv/bin/python#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
 sed -i "s#Environment=APP_PORT=8880#Environment=APP_PORT=$portal_port#g" /etc/systemd/system/sms-gateway-portal.service
-sed -i "s#User=root#User=$SERVICE_USER#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service
+sed -i "s#Environment=APP_PORT=8089#Environment=APP_PORT=$admin_port#g" /etc/systemd/system/sms-gateway-admin.service
+sed -i "s#User=root#User=$SERVICE_USER#g" /etc/systemd/system/sms-gateway.service /etc/systemd/system/sms-gateway-portal.service /etc/systemd/system/sms-gateway-admin.service
 
 systemctl daemon-reload
 if component_enabled api; then
@@ -286,8 +331,11 @@ fi
 if component_enabled hotspot; then
   systemctl enable --now sms-gateway-portal
   systemctl restart sms-gateway-portal
+  systemctl enable --now sms-gateway-admin
+  systemctl restart sms-gateway-admin
 else
   systemctl disable --now sms-gateway-portal 2>/dev/null || true
+  systemctl disable --now sms-gateway-admin 2>/dev/null || true
 fi
 
 install_update_command
@@ -303,5 +351,6 @@ if component_enabled api; then
 fi
 if component_enabled hotspot; then
   echo "Portal: http://<controller>:$portal_port/"
+  echo "Admin:  http://<controller>:$admin_port/admin/"
 fi
 echo "Audit:  $INSTALL_DIR/data/hotspot_access.csv"

@@ -27,6 +27,12 @@ def logo() -> FileResponse:
     return FileResponse(LOGO_PATH)
 
 
+@router.get("/assets/hotspot-logo")
+def custom_logo(settings: Settings = Depends(get_settings)) -> FileResponse:
+    logo_path = Path(settings.hotspot_logo_path)
+    return FileResponse(logo_path if logo_path.exists() else LOGO_PATH)
+
+
 @router.post(
     "/api/hotspot/request-code",
     response_model=OtpRequestResponse,
@@ -37,7 +43,11 @@ def request_hotspot_code(
     store: Store = Depends(get_store),
     service: OtpService = Depends(get_otp_service),
 ) -> OtpRequestResponse:
-    HotspotStore(store).save_session(
+    hotspot_store = HotspotStore(store)
+    existing = hotspot_store.get_session(payload.client_mac)
+    if existing and existing["blocked_at"]:
+        raise HTTPException(status_code=403, detail="client is blocked")
+    hotspot_store.save_session(
         payload.client_mac,
         payload.phone,
         payload.ap_mac,
@@ -73,10 +83,17 @@ async def verify_hotspot_code(
         session = hotspot_store.get_session(payload.client_mac)
         ap_mac = session["ap_mac"] if session else None
         await UniFiClient(settings).authorize_guest(payload.client_mac, ap_mac=ap_mac)
-        authorized_at = hotspot_store.mark_authorized(payload.client_mac)
+        authorized_at = hotspot_store.mark_authorized(payload.client_mac, settings.unifi_auth_minutes)
+        session = hotspot_store.get_session(payload.client_mac)
         record_access_event(
             settings,
-            build_access_event(settings, payload.client_mac, payload.phone, authorized_at),
+            build_access_event(
+                settings,
+                payload.client_mac,
+                payload.phone,
+                authorized_at,
+                session["valid_until"] if session else None,
+            ),
         )
     return OtpVerifyResponse(ok=True, verified=verified)
 
@@ -119,7 +136,12 @@ def portal(
     session = hotspot_store.get_session(client_mac) if client_mac else None
     unifi_authorized = _unifi_authorization_state(client_mac, settings) if session and session["authorized_at"] else None
     if _is_authorized(session, settings) and unifi_authorized is not False:
-        return HTMLResponse(_page_success(settings, already_authorized=True, authorized_at_ts=session["authorized_at"]))
+        return HTMLResponse(_page_success(
+            settings,
+            already_authorized=True,
+            authorized_at_ts=session["authorized_at"],
+            valid_until_ts=session["valid_until"],
+        ))
     if session and session["authorized_at"] and unifi_authorized is False:
         hotspot_store.clear_authorized(client_mac)
     return HTMLResponse(_page_request_phone(client_mac, ap_mac, redirect_url, client_ip))
@@ -148,10 +170,18 @@ def portal_request_code(
             return HTMLResponse(_page_missing_client(client_ip), status_code=400)
 
     hotspot_store = HotspotStore(store)
+    existing = hotspot_store.get_session(client_mac)
+    if existing and existing["blocked_at"]:
+        return HTMLResponse(_page_error("Этот клиент заблокирован."), status_code=403)
     session = hotspot_store.get_session(client_mac)
     unifi_authorized = _unifi_authorization_state(client_mac, settings) if session and session["authorized_at"] else None
     if _is_authorized(session, settings) and unifi_authorized is not False:
-        return HTMLResponse(_page_success(settings, already_authorized=True, authorized_at_ts=session["authorized_at"]))
+        return HTMLResponse(_page_success(
+            settings,
+            already_authorized=True,
+            authorized_at_ts=session["authorized_at"],
+            valid_until_ts=session["valid_until"],
+        ))
     if session and session["authorized_at"] and unifi_authorized is False:
         hotspot_store.clear_authorized(client_mac)
 
@@ -161,6 +191,9 @@ def portal_request_code(
         ap_mac=ap_mac or None,
         redirect_url=redirect_url or None,
     )
+    existing = hotspot_store.get_session(payload.client_mac)
+    if existing and existing["blocked_at"]:
+        return HTMLResponse(_page_error("Этот клиент заблокирован."), status_code=403)
     hotspot_store.save_session(
         payload.client_mac,
         payload.phone,
@@ -196,7 +229,12 @@ async def portal_verify_code(
         else None
     )
     if not verified and _is_authorized(session, settings) and unifi_authorized is not False:
-        return HTMLResponse(_page_success(settings, already_authorized=True, authorized_at_ts=session["authorized_at"]))
+        return HTMLResponse(_page_success(
+            settings,
+            already_authorized=True,
+            authorized_at_ts=session["authorized_at"],
+            valid_until_ts=session["valid_until"],
+        ))
     if not verified and session and session["authorized_at"] and unifi_authorized is False:
         hotspot_store.clear_authorized(payload.client_mac)
     if not verified:
@@ -215,12 +253,25 @@ async def portal_verify_code(
             status_code=502,
         )
 
-    authorized_at = hotspot_store.mark_authorized(payload.client_mac)
+    authorized_at = hotspot_store.mark_authorized(payload.client_mac, settings.unifi_auth_minutes)
+    session = hotspot_store.get_session(payload.client_mac)
     record_access_event(
         settings,
-        build_access_event(settings, payload.client_mac, payload.phone, authorized_at),
+        build_access_event(
+            settings,
+            payload.client_mac,
+            payload.phone,
+            authorized_at,
+            session["valid_until"] if session else None,
+        ),
     )
-    return HTMLResponse(_page_success(settings, authorized_at_ts=authorized_at))
+    return HTMLResponse(
+        _page_success(
+            settings,
+            authorized_at_ts=authorized_at,
+            valid_until_ts=session["valid_until"] if session else None,
+        )
+    )
 
 
 def _hotspot_purpose(client_mac: str) -> str:
@@ -245,8 +296,10 @@ def _resolve_client_mac_from_ip(client_ip: str, settings: Settings) -> str:
 def _is_authorized(session, settings: Settings) -> bool:
     if not session or not session["authorized_at"]:
         return False
-    authorized_at = int(session["authorized_at"])
-    return int(time.time()) < authorized_at + settings.unifi_auth_minutes * 60
+    valid_until = session["valid_until"] if "valid_until" in session.keys() else None
+    if valid_until:
+        return int(time.time()) < int(valid_until)
+    return int(time.time()) < int(session["authorized_at"]) + settings.unifi_auth_minutes * 60
 
 
 def _unifi_authorization_state(client_mac: str, settings: Settings) -> Optional[bool]:
@@ -260,13 +313,21 @@ def _unifi_authorization_state(client_mac: str, settings: Settings) -> Optional[
         return None
 
 
-def _authorization_window(settings: Settings, authorized_at_ts: Optional[int] = None) -> tuple[str, str]:
+def _authorization_window(
+    settings: Settings,
+    authorized_at_ts: Optional[int] = None,
+    valid_until_ts: Optional[int] = None,
+) -> tuple[str, str]:
     authorized_at = (
         datetime.fromtimestamp(int(authorized_at_ts))
         if authorized_at_ts
         else datetime.now()
     )
-    expires_at = authorized_at + timedelta(minutes=settings.unifi_auth_minutes)
+    expires_at = (
+        datetime.fromtimestamp(int(valid_until_ts))
+        if valid_until_ts
+        else authorized_at + timedelta(minutes=settings.unifi_auth_minutes)
+    )
     return (
         authorized_at.strftime("%d.%m.%Y %H:%M"),
         expires_at.strftime("%d.%m.%Y %H:%M"),
@@ -281,7 +342,7 @@ def _page_request_phone(client_mac: str, ap_mac: str, redirect_url: str, client_
       <body>
         <main>
           {_brand()}
-          <h1>Welcome to Olshaniki</h1>
+          <h1>{escape(get_settings().hotspot_portal_title)}</h1>
           <form method="post" action="{_relative_action('request-code')}">
             <input type="hidden" name="client_mac" value="{escape(client_mac)}">
             <input type="hidden" name="client_ip" value="{escape(client_ip)}">
@@ -309,7 +370,7 @@ def _page_missing_client(client_ip: str = "") -> str:
       <body>
         <main>
           {_brand()}
-          <h1>Welcome to Olshaniki</h1>
+          <h1>{escape(get_settings().hotspot_portal_title)}</h1>
           <p class="error">Не найден MAC-адрес клиента. Откройте портал через гостевую сеть UniFi.</p>
           {details}
         </main>
@@ -350,8 +411,9 @@ def _page_success(
     settings: Settings,
     already_authorized: bool = False,
     authorized_at_ts: Optional[int] = None,
+    valid_until_ts: Optional[int] = None,
 ) -> str:
-    authorized_at, expires_at = _authorization_window(settings, authorized_at_ts)
+    authorized_at, expires_at = _authorization_window(settings, authorized_at_ts, valid_until_ts)
     title = "Доступ уже открыт" if already_authorized else "Доступ открыт"
     return f"""
     <!doctype html>
@@ -383,8 +445,10 @@ def _page_error(message: str) -> str:
 
 
 def _brand() -> str:
-    return """
-          <img class="logo" src="/assets/ahs.png" alt="AHS">
+    logo_path = Path(get_settings().hotspot_logo_path)
+    src = "/assets/hotspot-logo" if logo_path.exists() else "/assets/ahs.png"
+    return f"""
+          <img class="logo" src="{escape(src)}" alt="AHS">
     """
 
 

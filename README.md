@@ -18,8 +18,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/akinin/wirenboard-sms/ma
 Во время установки можно выбрать состав:
 
 - `api` - только HTTP API.
-- `hotspot` - только UniFi hotspot-портал.
-- `all` - оба сервиса.
+- `hotspot` - UniFi hotspot-портал и админка.
+- `all` - API, UniFi hotspot-портал и админка.
 
 Дефолтные параметры LXC:
 
@@ -32,6 +32,15 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/akinin/wirenboard-sms/ma
 - IPv4: `dhcp`
 - container type: unprivileged
 - autostart: enabled
+
+Порты по умолчанию:
+
+- API: `8088`
+- hotspot-портал для гостей: `8880`
+- админка: `8089`
+
+Админку можно закрыть firewall-ом от гостевой сети, оставив гостям доступ
+только к `8880`.
 
 Дефолтного пароля у контейнера нет. Установщик может задать пароль `root`, если
 ввести его при установке. Если оставить пароль пустым, вход выполняется с
@@ -96,6 +105,7 @@ PY
 ```bash
 cp deploy/sms-gateway.service /etc/systemd/system/
 cp deploy/sms-gateway-portal.service /etc/systemd/system/
+cp deploy/sms-gateway-admin.service /etc/systemd/system/
 systemctl daemon-reload
 ```
 
@@ -116,20 +126,27 @@ Hotspot-портал:
 
 ```bash
 systemctl enable --now sms-gateway-portal
+systemctl enable --now sms-gateway-admin
 systemctl start sms-gateway-portal
+systemctl start sms-gateway-admin
 systemctl stop sms-gateway-portal
+systemctl stop sms-gateway-admin
 systemctl restart sms-gateway-portal
+systemctl restart sms-gateway-admin
 systemctl status sms-gateway-portal
+systemctl status sms-gateway-admin
 journalctl -u sms-gateway-portal -f
+journalctl -u sms-gateway-admin -f
 ```
 
-Оба сервиса:
+Все сервисы:
 
 ```bash
-systemctl enable --now sms-gateway sms-gateway-portal
-systemctl restart sms-gateway sms-gateway-portal
+systemctl enable --now sms-gateway sms-gateway-portal sms-gateway-admin
+systemctl restart sms-gateway sms-gateway-portal sms-gateway-admin
 systemctl status sms-gateway
 systemctl status sms-gateway-portal
+systemctl status sms-gateway-admin
 ```
 
 Отключить автозапуск:
@@ -137,6 +154,7 @@ systemctl status sms-gateway-portal
 ```bash
 systemctl disable --now sms-gateway
 systemctl disable --now sms-gateway-portal
+systemctl disable --now sms-gateway-admin
 ```
 
 ## Обновление
@@ -178,6 +196,7 @@ systemctl restart sms-gateway sms-gateway-portal
 - путь к данным `/opt/sms-gateway/data`;
 - команду обновления `sms-gateway-update`;
 - статус `sms-gateway` и `sms-gateway-portal`;
+- статус `sms-gateway-admin`;
 - команды для просмотра логов и управления сервисами.
 
 ## SMS backend
@@ -310,6 +329,11 @@ UNIFI_SITE=default
 UNIFI_VERIFY_TLS=false
 UNIFI_AUTH_MINUTES=1440
 
+HOTSPOT_PORTAL_PORT=8880
+HOTSPOT_ADMIN_PORT=8089
+HOTSPOT_PORTAL_TITLE=Welcome to Olshaniki
+HOTSPOT_LOGO_PATH=./data/hotspot_logo.png
+
 HOTSPOT_ACCESS_LOG_PATH=./data/hotspot_access.csv
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
@@ -334,6 +358,24 @@ http://<container-ip>:8880/guest/s/default/
 http://<container-ip>:8880/guest/s/default/login
 http://<container-ip>:8880/portal/
 ```
+
+Админка открывается отдельно:
+
+```text
+http://<container-ip>:8089/admin/
+```
+
+В админке есть:
+
+- список активных клиентов;
+- телефон, MAC, IP и live-информация из UniFi, если контроллер ее отдает;
+- трафик RX/TX, если UniFi возвращает эти поля;
+- продление авторизации на `1`, `2`, `7`, `14`, `30`, `365` дней;
+- отзыв авторизации;
+- блокировка клиента через UniFi `block-sta`;
+- вкладка `Archive` с ранее авторизованными клиентами;
+- замена логотипа портала;
+- замена надписи `Welcome to Olshaniki`.
 
 Сервис принимает стандартные параметры UniFi portal: `id`, `ap`, `url`.
 Также поддерживаются варианты `mac`, `client_mac`, `clientmac`, `sta`,

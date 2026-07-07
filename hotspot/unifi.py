@@ -60,6 +60,24 @@ class UniFiClient:
                 return str(item["mac"])
         return None
 
+    async def list_clients(self) -> list[dict[str, object]]:
+        if not self.settings.unifi_base_url:
+            raise RuntimeError("UNIFI_BASE_URL is not configured")
+        if not self.settings.unifi_username or not self.settings.unifi_password:
+            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
+
+        async with httpx.AsyncClient(
+            base_url=self.settings.unifi_base_url.rstrip("/"),
+            verify=self.settings.unifi_verify_tls,
+            timeout=15,
+            follow_redirects=True,
+        ) as client:
+            await self._login(client)
+            data = await self._get_unifi_data(client, f"/proxy/network/api/s/{self.settings.unifi_site}/stat/sta")
+            if data is None:
+                data = await self._get_unifi_data(client, f"/api/s/{self.settings.unifi_site}/stat/sta")
+        return data or []
+
     async def is_guest_authorized(self, client_mac: str) -> Optional[bool]:
         client_mac = client_mac.lower()
         if not self.settings.unifi_base_url:
@@ -93,6 +111,44 @@ class UniFiClient:
                 return True
             return None
         return None
+
+    async def unauthorize_guest(self, client_mac: str) -> None:
+        if not self.settings.unifi_base_url:
+            raise RuntimeError("UNIFI_BASE_URL is not configured")
+        if not self.settings.unifi_username or not self.settings.unifi_password:
+            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
+
+        async with httpx.AsyncClient(
+            base_url=self.settings.unifi_base_url.rstrip("/"),
+            verify=self.settings.unifi_verify_tls,
+            timeout=15,
+            follow_redirects=True,
+        ) as client:
+            await self._login(client)
+            await self._post_unifi_command(
+                client,
+                "stamgr",
+                {"cmd": "unauthorize-guest", "mac": client_mac.lower()},
+            )
+
+    async def block_client(self, client_mac: str) -> None:
+        if not self.settings.unifi_base_url:
+            raise RuntimeError("UNIFI_BASE_URL is not configured")
+        if not self.settings.unifi_username or not self.settings.unifi_password:
+            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
+
+        async with httpx.AsyncClient(
+            base_url=self.settings.unifi_base_url.rstrip("/"),
+            verify=self.settings.unifi_verify_tls,
+            timeout=15,
+            follow_redirects=True,
+        ) as client:
+            await self._login(client)
+            await self._post_unifi_command(
+                client,
+                "stamgr",
+                {"cmd": "block-sta", "mac": client_mac.lower()},
+            )
 
     async def _login(self, client: httpx.AsyncClient) -> None:
         password = self.settings.unifi_password.get_secret_value()

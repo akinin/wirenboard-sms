@@ -25,6 +25,7 @@ def build_access_event(
     client_mac: str,
     phone: str,
     authorized_at_ts: Optional[int] = None,
+    valid_until_ts: Optional[int] = None,
 ) -> AccessEvent:
     authorized_at = (
         datetime.fromtimestamp(int(authorized_at_ts))
@@ -33,7 +34,11 @@ def build_access_event(
     )
     return AccessEvent(
         authorized_at=authorized_at,
-        expires_at=authorized_at + timedelta(minutes=settings.unifi_auth_minutes),
+        expires_at=(
+            datetime.fromtimestamp(int(valid_until_ts))
+            if valid_until_ts
+            else authorized_at + timedelta(minutes=settings.unifi_auth_minutes)
+        ),
         client_mac=client_mac.lower(),
         phone=phone,
     )

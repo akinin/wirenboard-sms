@@ -14,8 +14,11 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/akinin/wirenboard-sms/ma
 Установщик спросит, что установить:
 
 - `api` - HTTP API на порту `8088`;
-- `hotspot` - UniFi hotspot-портал на порту `8880`;
-- `all` - оба сервиса.
+- `hotspot` - UniFi hotspot-портал на порту `8880` и админка на порту `8089`;
+- `all` - API, UniFi hotspot-портал и админка.
+
+Админку можно закрыть firewall-ом от гостевой сети, оставив гостям доступ
+только к порту `8880`.
 
 ## Дефолтные параметры LXC
 
@@ -57,6 +60,26 @@ pct enter <CTID>
 
 SSH-сервер отдельно не устанавливается.
 
+## Админка
+
+Админка доступна на отдельном порту:
+
+```text
+http://<container-ip>:8089/admin/
+```
+
+В ней можно:
+
+- просматривать активных клиентов;
+- видеть телефон, MAC, IP и live-информацию из UniFi;
+- видеть RX/TX трафик, если UniFi возвращает эти поля;
+- продлевать авторизацию на `1`, `2`, `7`, `14`, `30`, `365` дней;
+- отзывать авторизацию;
+- блокировать клиента;
+- смотреть архив ранее авторизованных клиентов;
+- менять логотип портала;
+- менять надпись `Welcome to Olshaniki`.
+
 ## SMS backend
 
 `install.sh` спросит, как отправлять SMS.
@@ -96,11 +119,18 @@ curl http://<container-ip>:8088/health
 curl http://<container-ip>:8880/
 ```
 
+Проверить админку, если hotspot установлен:
+
+```bash
+curl http://<container-ip>:8089/admin/
+```
+
 Логи внутри контейнера:
 
 ```bash
 journalctl -u sms-gateway -f
 journalctl -u sms-gateway-portal -f
+journalctl -u sms-gateway-admin -f
 ```
 
 Управление контейнером на Proxmox host:

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_secret: SecretStr = Field(default=SecretStr("change-me"))
     app_host: str = "0.0.0.0"
     app_port: int = 8088
+    app_role: str = "api"
     database_path: str = "./data/sms_gateway.sqlite3"
 
     wb_mqtt_host: str = "127.0.0.1"
@@ -29,6 +30,10 @@ class Settings(BaseSettings):
     unifi_site: str = "default"
     unifi_verify_tls: bool = False
     unifi_auth_minutes: int = 1440
+
+    hotspot_admin_port: int = 8089
+    hotspot_portal_title: str = "Welcome to Olshaniki"
+    hotspot_logo_path: str = "./data/hotspot_logo.png"
 
     hotspot_access_log_path: str = "./data/hotspot_access.csv"
     telegram_bot_token: Optional[SecretStr] = None

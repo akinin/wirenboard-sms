@@ -12,6 +12,7 @@ from .models import (
 )
 from .otp import OtpService
 from .sms import SmsSender
+from hotspot.admin import router as admin_router
 from hotspot.routes import router as hotspot_router
 
 app = FastAPI(title="SMS Gateway API", version="0.1.0")
@@ -56,3 +57,4 @@ def verify_otp(payload: OtpVerifyRequest, service: OtpService = Depends(get_otp_
 
 
 app.include_router(hotspot_router)
+app.include_router(admin_router)
