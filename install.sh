@@ -68,6 +68,84 @@ quote_env() {
   printf "'%s'" "$value"
 }
 
+install_update_command() {
+  cat > /usr/local/bin/sms-gateway-update <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR="$INSTALL_DIR"
+
+if [ "\$(id -u)" -ne 0 ]; then
+  echo "Run as root: sudo sms-gateway-update" >&2
+  exit 1
+fi
+
+cd "\$INSTALL_DIR"
+git pull --ff-only
+. .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+systemctl daemon-reload
+if systemctl is-enabled sms-gateway >/dev/null 2>&1; then
+  systemctl restart sms-gateway
+fi
+if systemctl is-enabled sms-gateway-portal >/dev/null 2>&1; then
+  systemctl restart sms-gateway-portal
+fi
+
+echo "SMS Gateway updated."
+EOF
+  chmod 755 /usr/local/bin/sms-gateway-update
+}
+
+install_motd() {
+  cat > /etc/profile.d/sms-gateway-motd.sh <<EOF
+#!/usr/bin/env bash
+[ -n "\${PS1:-}" ] || return 0
+[ "\${SMS_GATEWAY_MOTD_SHOWN:-0}" = "0" ] || return 0
+export SMS_GATEWAY_MOTD_SHOWN=1
+
+sms_gateway_ips="\$(hostname -I 2>/dev/null | xargs || true)"
+sms_gateway_api_state="\$(systemctl is-active sms-gateway 2>/dev/null || true)"
+sms_gateway_portal_state="\$(systemctl is-active sms-gateway-portal 2>/dev/null || true)"
+
+cat <<'MOTD'
+
+============================================================
+ Wiren Board SMS Gateway
+============================================================
+MOTD
+printf ' Hostname:      %s\n' "\$(hostname)"
+printf ' IP address:    %s\n' "\${sms_gateway_ips:-unknown}"
+cat <<'MOTD'
+ GitHub:        https://github.com/akinin/wirenboard-sms
+ Install dir:   $INSTALL_DIR
+ Config:        $INSTALL_DIR/.env
+ Data:          $INSTALL_DIR/data
+ Update:        sms-gateway-update
+
+ Services:
+MOTD
+printf '   sms-gateway         %s\n' "\${sms_gateway_api_state:-unknown}"
+printf '   sms-gateway-portal  %s\n' "\${sms_gateway_portal_state:-unknown}"
+cat <<'MOTD'
+
+ Useful commands:
+   nano $INSTALL_DIR/.env
+   sms-gateway-update
+   systemctl status sms-gateway
+   systemctl status sms-gateway-portal
+   journalctl -u sms-gateway -f
+   journalctl -u sms-gateway-portal -f
+
+============================================================
+
+MOTD
+EOF
+  chmod 644 /etc/profile.d/sms-gateway-motd.sh
+}
+
 echo "Installing packages..."
 apt-get update
 apt-get install -y python3 python3-venv python3-pip git curl
@@ -212,9 +290,14 @@ else
   systemctl disable --now sms-gateway-portal 2>/dev/null || true
 fi
 
+install_update_command
+install_motd
+
 echo
 echo "Installed."
 echo "Components: $COMPONENTS"
+echo "Config: $INSTALL_DIR/.env"
+echo "Update: sms-gateway-update"
 if component_enabled api; then
   echo "API:    http://<controller>:$api_port/health"
 fi

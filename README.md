@@ -1,4 +1,4 @@
-# Wirenboard SMS Gateway
+# Wiren Board SMS Gateway
 
 HTTP API для отправки SMS и одноразовых кодов, а также опциональный UniFi
 hotspot-портал с авторизацией гостей по SMS.
@@ -41,6 +41,9 @@ Proxmox host:
 pct enter <CTID>
 ```
 
+При входе в контейнер показывается приветственное окно с hostname, IP-адресом,
+ссылкой на GitHub, путями к файлам, статусом сервисов и полезными командами.
+
 ## Ручная установка
 
 Этот раздел нужен, если Debian 13 или Debian 12 контейнер/сервер уже создан и
@@ -76,7 +79,7 @@ cp .env.example .env
 nano .env
 ```
 
-Сгенерируйте локальные секреты:
+Сгенерируйте `API_TOKEN` и `APP_SECRET`:
 
 ```bash
 python3 - <<'PY'
@@ -96,18 +99,86 @@ cp deploy/sms-gateway-portal.service /etc/systemd/system/
 systemctl daemon-reload
 ```
 
-Включите только нужный сервис:
+## Управление сервисами
+
+API:
 
 ```bash
-# Только API
 systemctl enable --now sms-gateway
-
-# Только hotspot-портал
-systemctl enable --now sms-gateway-portal
-
-# Оба сервиса
-systemctl enable --now sms-gateway sms-gateway-portal
+systemctl start sms-gateway
+systemctl stop sms-gateway
+systemctl restart sms-gateway
+systemctl status sms-gateway
+journalctl -u sms-gateway -f
 ```
+
+Hotspot-портал:
+
+```bash
+systemctl enable --now sms-gateway-portal
+systemctl start sms-gateway-portal
+systemctl stop sms-gateway-portal
+systemctl restart sms-gateway-portal
+systemctl status sms-gateway-portal
+journalctl -u sms-gateway-portal -f
+```
+
+Оба сервиса:
+
+```bash
+systemctl enable --now sms-gateway sms-gateway-portal
+systemctl restart sms-gateway sms-gateway-portal
+systemctl status sms-gateway
+systemctl status sms-gateway-portal
+```
+
+Отключить автозапуск:
+
+```bash
+systemctl disable --now sms-gateway
+systemctl disable --now sms-gateway-portal
+```
+
+## Обновление
+
+Автоматический установщик создает команду:
+
+```bash
+sms-gateway-update
+```
+
+Она выполняет `git pull --ff-only`, обновляет Python-зависимости и перезапускает
+включенные сервисы.
+
+Если проект установлен вручную и команды еще нет, обновить можно так:
+
+```bash
+cd /opt/sms-gateway
+git pull --ff-only
+. .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+systemctl restart sms-gateway sms-gateway-portal
+```
+
+## Приветственное окно контейнера
+
+Автоматический установщик создает файл:
+
+```text
+/etc/profile.d/sms-gateway-motd.sh
+```
+
+При входе в контейнер он показывает:
+
+- hostname и IP контейнера;
+- ссылку на GitHub;
+- путь установки `/opt/sms-gateway`;
+- путь к конфигу `/opt/sms-gateway/.env`;
+- путь к данным `/opt/sms-gateway/data`;
+- команду обновления `sms-gateway-update`;
+- статус `sms-gateway` и `sms-gateway-portal`;
+- команды для просмотра логов и управления сервисами.
 
 ## SMS backend
 
@@ -147,11 +218,21 @@ WB_SMS_TOPIC=/devices/sms_sender/controls/send/on
 
 API-сервис слушает `APP_PORT`, по умолчанию `8088`.
 
+Получите значения `API_TOKEN` и `APP_SECRET` командой:
+
+```bash
+python3 - <<'PY'
+import secrets
+print("API_TOKEN=" + secrets.token_urlsafe(32))
+print("APP_SECRET=" + secrets.token_urlsafe(48))
+PY
+```
+
 Минимальные значения `.env`:
 
 ```env
-API_TOKEN=change-me
-APP_SECRET=change-me-to-a-long-random-string
+API_TOKEN=<значение-из-команды-выше>
+APP_SECRET=<значение-из-команды-выше>
 APP_HOST=0.0.0.0
 APP_PORT=8088
 DATABASE_PATH=./data/sms_gateway.sqlite3
@@ -193,23 +274,27 @@ curl -X POST http://<container-ip>:8088/api/otp/verify \
   -d '{"phone":"+79991234567","purpose":"test","code":"123456"}'
 ```
 
-Логи:
-
-```bash
-journalctl -u sms-gateway -f
-```
-
 ## Hotspot
 
 Hotspot-сервис по умолчанию слушает порт `8880` и обслуживает UniFi guest
 portal. Он отправляет SMS-код, проверяет его и авторизует гостевого клиента в
 UniFi Network.
 
+Получите значения `API_TOKEN` и `APP_SECRET` командой:
+
+```bash
+python3 - <<'PY'
+import secrets
+print("API_TOKEN=" + secrets.token_urlsafe(32))
+print("APP_SECRET=" + secrets.token_urlsafe(48))
+PY
+```
+
 Минимальные значения `.env`:
 
 ```env
-API_TOKEN=change-me
-APP_SECRET=change-me-to-a-long-random-string
+API_TOKEN=<значение-из-команды-выше>
+APP_SECRET=<значение-из-команды-выше>
 APP_HOST=0.0.0.0
 APP_PORT=8088
 DATABASE_PATH=./data/sms_gateway.sqlite3
@@ -289,10 +374,4 @@ curl -X POST http://<container-ip>:8088/api/hotspot/verify-code \
 
 ```text
 date,time,mac,phone,valid_until
-```
-
-Логи:
-
-```bash
-journalctl -u sms-gateway-portal -f
 ```
