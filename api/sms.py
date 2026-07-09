@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import re
 import subprocess
+import time
 
 from .config import Settings
 
@@ -35,12 +36,16 @@ class SmsSender:
             client.username_pw_set(self.settings.wb_mqtt_username, password)
 
         client.connect(self.settings.wb_mqtt_host, self.settings.wb_mqtt_port, keepalive=10)
-        result = client.publish(self.settings.wb_sms_topic, payload=payload, qos=1)
-        result.wait_for_publish(timeout=10)
+        reset_result = client.publish(self.settings.wb_sms_topic, payload=" ", qos=1)
+        reset_result.wait_for_publish(timeout=10)
+        time.sleep(0.5)
+        send_result = client.publish(self.settings.wb_sms_topic, payload=payload, qos=1)
+        send_result.wait_for_publish(timeout=10)
         client.disconnect()
 
-        if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            raise RuntimeError(f"MQTT publish failed with code {result.rc}")
+        for result in (reset_result, send_result):
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                raise RuntimeError(f"MQTT publish failed with code {result.rc}")
 
     def _send_via_mmcli(self, phone: str, message: str) -> None:
         modem_id = self._resolve_mmcli_modem_id()
