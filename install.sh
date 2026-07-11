@@ -81,10 +81,13 @@ if [ "\$(id -u)" -ne 0 ]; then
 fi
 
 cd "\$INSTALL_DIR"
-git pull --ff-only
+echo "Updating source..."
+git pull --ff-only --quiet
+bash install.sh --refresh-updater >/dev/null
 . .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+echo "Checking dependencies..."
+pip install --quiet --disable-pip-version-check --upgrade pip
+pip install --quiet --disable-pip-version-check -r requirements.txt
 
 set -a
 . ./.env
@@ -110,7 +113,7 @@ if systemctl is-enabled sms-gateway-admin >/dev/null 2>&1; then
   systemctl restart sms-gateway-admin
 fi
 
-echo "SMS Gateway updated."
+echo "SMS Gateway updated successfully."
 EOF
   chmod 755 /usr/local/bin/sms-gateway-update
 }
@@ -178,6 +181,12 @@ MOTD
 EOF
   chmod 644 /etc/profile.d/sms-gateway-motd.sh
 }
+
+if [ "${1:-}" = "--refresh-updater" ]; then
+  install_update_command
+  echo "Update command refreshed."
+  exit 0
+fi
 
 echo "Installing packages..."
 apt-get update
