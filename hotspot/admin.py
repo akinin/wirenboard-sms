@@ -18,7 +18,7 @@ from api.store import Store
 
 from .audit import build_access_event, record_access_event
 from .store import HotspotStore
-from .unifi import UniFiClient
+from .unifi import UniFiClient, UniFiClientNotFoundError
 
 router = APIRouter(prefix="/admin")
 
@@ -201,6 +201,8 @@ async def extend_client(
             minutes=minutes,
             ap_mac=session["ap_mac"],
         )
+    except UniFiClientNotFoundError:
+        pass
     except Exception as exc:
         return _redirect(error=f"UniFi authorize failed: {exc}", lang=lang)
     authorized_at = hotspot_store.mark_authorized(client_mac, minutes)
@@ -227,6 +229,8 @@ async def revoke_client(
 ):
     try:
         await UniFiClient(settings).unauthorize_guest(client_mac)
+    except UniFiClientNotFoundError:
+        pass
     except Exception as exc:
         return _redirect(error=f"UniFi revoke failed: {exc}", lang=lang)
     HotspotStore(store).clear_authorized(client_mac)

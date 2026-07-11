@@ -165,6 +165,8 @@ def portal(
     hotspot_store = HotspotStore(store)
     session = hotspot_store.get_session(client_mac) if client_mac else None
     unifi_authorized = _unifi_authorization_state(client_mac, settings) if session and session["authorized_at"] else None
+    if _is_authorized(session, settings) and unifi_authorized is False:
+        unifi_authorized = _restore_guest_authorization(client_mac, session, settings)
     if _is_authorized(session, settings) and unifi_authorized is not False:
         return HTMLResponse(_page_success(
             settings,
@@ -173,8 +175,6 @@ def portal(
             authorized_at_ts=session["authorized_at"],
             valid_until_ts=session["valid_until"],
         ))
-    if session and session["authorized_at"] and unifi_authorized is False:
-        hotspot_store.clear_authorized(client_mac)
     return HTMLResponse(_page_request_phone(client_mac, ap_mac, redirect_url, client_ip, lang))
 
 
@@ -208,6 +208,8 @@ def portal_request_code(
         return HTMLResponse(_page_error(_pt(lang, "blocked"), lang), status_code=403)
     session = hotspot_store.get_session(client_mac)
     unifi_authorized = _unifi_authorization_state(client_mac, settings) if session and session["authorized_at"] else None
+    if _is_authorized(session, settings) and unifi_authorized is False:
+        unifi_authorized = _restore_guest_authorization(client_mac, session, settings)
     if _is_authorized(session, settings) and unifi_authorized is not False:
         return HTMLResponse(_page_success(
             settings,
@@ -216,8 +218,6 @@ def portal_request_code(
             authorized_at_ts=session["authorized_at"],
             valid_until_ts=session["valid_until"],
         ))
-    if session and session["authorized_at"] and unifi_authorized is False:
-        hotspot_store.clear_authorized(client_mac)
 
     payload = HotspotOtpRequest(
         phone=phone,
@@ -274,8 +274,6 @@ async def portal_verify_code(
             authorized_at_ts=session["authorized_at"],
             valid_until_ts=session["valid_until"],
         ))
-    if not verified and session and session["authorized_at"] and unifi_authorized is False:
-        hotspot_store.clear_authorized(payload.client_mac)
     if not verified:
         return HTMLResponse(
             _page_verify_code(payload.phone, payload.client_mac, redirect_url, lang, error=True),
@@ -363,6 +361,22 @@ def _unifi_authorization_state(client_mac: str, settings: Settings) -> Optional[
         return anyio.run(UniFiClient(settings).is_guest_authorized, client_mac)
     except Exception:
         return None
+
+
+def _restore_guest_authorization(client_mac: str, session, settings: Settings) -> bool:
+    if not client_mac or not session or not session["valid_until"]:
+        return False
+    remaining_seconds = int(session["valid_until"]) - int(time.time())
+    if remaining_seconds <= 0:
+        return False
+    import anyio
+
+    try:
+        minutes = max(1, (remaining_seconds + 59) // 60)
+        anyio.run(UniFiClient(settings).authorize_guest, client_mac, minutes)
+        return True
+    except Exception:
+        return False
 
 
 def _authorization_window(

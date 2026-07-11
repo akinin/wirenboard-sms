@@ -6,6 +6,10 @@ import httpx
 from api.config import Settings
 
 
+class UniFiClientNotFoundError(RuntimeError):
+    pass
+
+
 @dataclass
 class UniFiClient:
     settings: Settings
@@ -211,7 +215,7 @@ class UniFiClient:
     ) -> None:
         clients = await self._integration_clients(client, mac_address=client_mac)
         if not clients:
-            raise RuntimeError(f"UniFi client {client_mac.lower()} not found")
+            raise UniFiClientNotFoundError(f"UniFi client {client_mac.lower()} not found")
         site_id = await self._integration_site_id(client)
         response = await client.post(
             f"/proxy/network/integration/v1/sites/{site_id}/clients/{clients[0]['id']}/actions",
