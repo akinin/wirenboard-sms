@@ -566,6 +566,7 @@ def _head(title: str) -> str:
       <style>
         :root {{ color-scheme: dark; }}
         * {{ box-sizing: border-box; }}
+        [hidden] {{ display: none !important; }}
         body {{ min-height: 100vh; margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: radial-gradient(circle at top, #273142 0, #10141b 42%, #07090d 100%); color: #f4f7fb; }}
         body::before {{ content: ""; position: fixed; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,0) 24%); }}
         main {{ width: min(420px, calc(100vw - 32px)); margin: 8vh auto 0; padding-bottom: 32px; }}
