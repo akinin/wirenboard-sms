@@ -30,7 +30,8 @@ class HotspotStore:
                     valid_until INTEGER,
                     revoked_at INTEGER,
                     blocked_at INTEGER,
-                    blocked_reason TEXT
+                    blocked_reason TEXT,
+                    display_name TEXT
                 )
                 """
             )
@@ -43,6 +44,7 @@ class HotspotStore:
                 "revoked_at": "INTEGER",
                 "blocked_at": "INTEGER",
                 "blocked_reason": "TEXT",
+                "display_name": "TEXT",
             }.items():
                 if name not in columns:
                     conn.execute(f"ALTER TABLE hotspot_sessions ADD COLUMN {name} {definition}")
@@ -62,6 +64,12 @@ class HotspotStore:
                 )
                 """
             )
+            auth_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(hotspot_authorizations)").fetchall()
+            }
+            if "display_name" not in auth_columns:
+                conn.execute("ALTER TABLE hotspot_authorizations ADD COLUMN display_name TEXT")
 
     def save_session(
         self,
@@ -101,7 +109,7 @@ class HotspotStore:
             )
             row = conn.execute(
                 """
-                SELECT client_mac, phone, ap_mac, redirect_url
+                SELECT client_mac, phone, ap_mac, redirect_url, display_name
                 FROM hotspot_sessions
                 WHERE client_mac = ?
                 """,
@@ -111,21 +119,36 @@ class HotspotStore:
                 conn.execute(
                     """
                     INSERT INTO hotspot_authorizations(
-                        client_mac, phone, ap_mac, redirect_url, authorized_at, valid_until, minutes
+                        client_mac, phone, ap_mac, redirect_url, display_name,
+                        authorized_at, valid_until, minutes
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row["client_mac"],
                         row["phone"],
                         row["ap_mac"],
                         row["redirect_url"],
+                        row["display_name"],
                         authorized_at,
                         valid_until,
                         minutes,
                     ),
                 )
         return authorized_at
+
+    def set_display_name(self, client_mac: str, display_name: str) -> bool:
+        value = display_name.strip()[:120] or None
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE hotspot_sessions SET display_name = ? WHERE client_mac = ?",
+                (value, client_mac.lower()),
+            )
+            conn.execute(
+                "UPDATE hotspot_authorizations SET display_name = ? WHERE client_mac = ?",
+                (value, client_mac.lower()),
+            )
+            return cursor.rowcount > 0
 
     def clear_authorized(self, client_mac: str) -> None:
         revoked_at = int(time.time())

@@ -21,6 +21,35 @@ from .unifi import UniFiClient
 router = APIRouter()
 LOGO_PATH = Path(__file__).with_name("assets") / "ahs.png"
 
+PORTAL_TEXT = {
+    "en": {
+        "wifi_login": "Wi-Fi login", "phone": "Phone", "get_code": "Get SMS code",
+        "sending": "Sending…", "sms_code": "SMS code", "enter_code": "Enter the SMS code",
+        "code": "Code", "connect": "Connect", "invalid_code": "Invalid code. Try again.",
+        "already_sent": "A code was already sent. Enter it below.", "done": "Done",
+        "access_open": "Access granted", "access_already_open": "Access is already granted",
+        "wifi_authorized": "Wi-Fi authorized.", "authorized_at": "Authorized at",
+        "valid_until": "Valid until", "error": "Error", "blocked": "This client is blocked.",
+        "missing_mac": "Client MAC address was not found. Open the portal from the UniFi guest network.",
+        "client_not_found": "The client was not found in UniFi.",
+        "resolve_failed": "Could not identify the Wi-Fi client by IP",
+        "sms_failed": "Could not send SMS", "unifi_failed": "The code is correct, but UniFi did not authorize the client",
+    },
+    "ru": {
+        "wifi_login": "Wi-Fi вход", "phone": "Телефон", "get_code": "Получить SMS-код",
+        "sending": "Отправляем…", "sms_code": "SMS-код", "enter_code": "Введите код из SMS",
+        "code": "Код", "connect": "Подключиться", "invalid_code": "Неверный код. Попробуйте ещё раз.",
+        "already_sent": "Код уже отправлен. Введите его ниже.", "done": "Готово",
+        "access_open": "Доступ открыт", "access_already_open": "Доступ уже открыт",
+        "wifi_authorized": "Wi-Fi авторизован.", "authorized_at": "Время авторизации",
+        "valid_until": "Действует до", "error": "Ошибка", "blocked": "Этот клиент заблокирован.",
+        "missing_mac": "Не найден MAC-адрес клиента. Откройте портал через гостевую сеть UniFi.",
+        "client_not_found": "Клиент не найден в UniFi.",
+        "resolve_failed": "Не удалось определить клиента Wi-Fi по IP",
+        "sms_failed": "Не удалось отправить SMS", "unifi_failed": "Код верный, но UniFi не авторизовал клиента",
+    },
+}
+
 
 @router.get("/assets/ahs.png")
 def logo() -> FileResponse:
@@ -110,6 +139,7 @@ def portal(
     settings: Settings = Depends(get_settings),
     store: Store = Depends(get_store),
 ) -> HTMLResponse:
+    lang = _portal_lang(request)
     client_mac = (
         request.query_params.get("id")
         or request.query_params.get("mac")
@@ -138,17 +168,19 @@ def portal(
     if _is_authorized(session, settings) and unifi_authorized is not False:
         return HTMLResponse(_page_success(
             settings,
+            lang=lang,
             already_authorized=True,
             authorized_at_ts=session["authorized_at"],
             valid_until_ts=session["valid_until"],
         ))
     if session and session["authorized_at"] and unifi_authorized is False:
         hotspot_store.clear_authorized(client_mac)
-    return HTMLResponse(_page_request_phone(client_mac, ap_mac, redirect_url, client_ip))
+    return HTMLResponse(_page_request_phone(client_mac, ap_mac, redirect_url, client_ip, lang))
 
 
 @router.post("/portal/request-code", response_class=HTMLResponse)
 def portal_request_code(
+    request: Request,
     phone: str = Form(...),
     client_mac: str = Form(default=""),
     client_ip: str = Form(default=""),
@@ -158,26 +190,28 @@ def portal_request_code(
     store: Store = Depends(get_store),
     service: OtpService = Depends(get_otp_service),
 ) -> HTMLResponse:
+    lang = _portal_lang(request)
     if not client_mac:
         try:
             client_mac = _resolve_client_mac_from_ip(client_ip, settings)
         except Exception as exc:
             return HTMLResponse(
-                _page_error(f"Не удалось определить клиента Wi-Fi по IP: {escape(str(exc))}"),
+                _page_error(f"{_pt(lang, 'resolve_failed')}: {escape(str(exc))}", lang),
                 status_code=502,
             )
         if not client_mac:
-            return HTMLResponse(_page_missing_client(client_ip), status_code=400)
+            return HTMLResponse(_page_missing_client(client_ip, lang), status_code=400)
 
     hotspot_store = HotspotStore(store)
     existing = hotspot_store.get_session(client_mac)
     if existing and existing["blocked_at"]:
-        return HTMLResponse(_page_error("Этот клиент заблокирован."), status_code=403)
+        return HTMLResponse(_page_error(_pt(lang, "blocked"), lang), status_code=403)
     session = hotspot_store.get_session(client_mac)
     unifi_authorized = _unifi_authorization_state(client_mac, settings) if session and session["authorized_at"] else None
     if _is_authorized(session, settings) and unifi_authorized is not False:
         return HTMLResponse(_page_success(
             settings,
+            lang=lang,
             already_authorized=True,
             authorized_at_ts=session["authorized_at"],
             valid_until_ts=session["valid_until"],
@@ -193,7 +227,7 @@ def portal_request_code(
     )
     existing = hotspot_store.get_session(payload.client_mac)
     if existing and existing["blocked_at"]:
-        return HTMLResponse(_page_error("Этот клиент заблокирован."), status_code=403)
+        return HTMLResponse(_page_error(_pt(lang, "blocked"), lang), status_code=403)
     hotspot_store.save_session(
         payload.client_mac,
         payload.phone,
@@ -203,14 +237,17 @@ def portal_request_code(
     try:
         service.request_code(payload.phone, _hotspot_purpose(payload.client_mac))
     except ValueError:
-        pass
+        return HTMLResponse(
+            _page_verify_code(payload.phone, payload.client_mac, redirect_url, lang, already_sent=True)
+        )
     except Exception as exc:
-        return HTMLResponse(_page_error(f"Не удалось отправить SMS: {escape(str(exc))}"), status_code=502)
-    return HTMLResponse(_page_verify_code(payload.phone, payload.client_mac, redirect_url))
+        return HTMLResponse(_page_error(f"{_pt(lang, 'sms_failed')}: {escape(str(exc))}", lang), status_code=502)
+    return HTMLResponse(_page_verify_code(payload.phone, payload.client_mac, redirect_url, lang))
 
 
 @router.post("/portal/verify-code")
 async def portal_verify_code(
+    request: Request,
     phone: str = Form(...),
     client_mac: str = Form(...),
     code: str = Form(...),
@@ -219,6 +256,7 @@ async def portal_verify_code(
     store: Store = Depends(get_store),
     service: OtpService = Depends(get_otp_service),
 ):
+    lang = _portal_lang(request)
     payload = HotspotOtpVerifyRequest(phone=phone, client_mac=client_mac, code=code)
     verified = service.verify_code(payload.phone, _hotspot_purpose(payload.client_mac), payload.code)
     hotspot_store = HotspotStore(store)
@@ -231,6 +269,7 @@ async def portal_verify_code(
     if not verified and _is_authorized(session, settings) and unifi_authorized is not False:
         return HTMLResponse(_page_success(
             settings,
+            lang=lang,
             already_authorized=True,
             authorized_at_ts=session["authorized_at"],
             valid_until_ts=session["valid_until"],
@@ -239,7 +278,7 @@ async def portal_verify_code(
         hotspot_store.clear_authorized(payload.client_mac)
     if not verified:
         return HTMLResponse(
-            _page_verify_code(payload.phone, payload.client_mac, redirect_url, error=True),
+            _page_verify_code(payload.phone, payload.client_mac, redirect_url, lang, error=True),
             status_code=400,
         )
 
@@ -249,7 +288,7 @@ async def portal_verify_code(
         await UniFiClient(settings).authorize_guest(payload.client_mac, ap_mac=ap_mac)
     except Exception as exc:
         return HTMLResponse(
-            _page_error(f"Код верный, но UniFi не авторизовал клиента: {escape(str(exc))}"),
+            _page_error(f"{_pt(lang, 'unifi_failed')}: {escape(str(exc))}", lang),
             status_code=502,
         )
 
@@ -268,6 +307,7 @@ async def portal_verify_code(
     return HTMLResponse(
         _page_success(
             settings,
+            lang=lang,
             authorized_at_ts=authorized_at,
             valid_until_ts=session["valid_until"] if session else None,
         )
@@ -276,6 +316,18 @@ async def portal_verify_code(
 
 def _hotspot_purpose(client_mac: str) -> str:
     return f"hotspot:{client_mac.lower()}"
+
+
+def _portal_lang(request: Request) -> str:
+    value = request.query_params.get("lang", "").lower()
+    if value in PORTAL_TEXT:
+        return value
+    accepted = request.headers.get("accept-language", "").lower()
+    return "ru" if accepted.startswith("ru") or ",ru" in accepted else "en"
+
+
+def _pt(lang: str, key: str) -> str:
+    return PORTAL_TEXT.get(lang, PORTAL_TEXT["en"]).get(key, key)
 
 
 def _client_ip(request: Request) -> str:
@@ -334,22 +386,25 @@ def _authorization_window(
     )
 
 
-def _page_request_phone(client_mac: str, ap_mac: str, redirect_url: str, client_ip: str) -> str:
+def _page_request_phone(
+    client_mac: str, ap_mac: str, redirect_url: str, client_ip: str, lang: str
+) -> str:
     return f"""
     <!doctype html>
-    <html lang="ru">
-      <head>{_head("Wi-Fi вход")}</head>
+    <html lang="{escape(lang)}">
+        <head>{_head(_pt(lang, "wifi_login"))}</head>
       <body>
         <main>
           {_brand()}
           <h1>{escape(get_settings().hotspot_portal_title)}</h1>
           <form method="post" action="{_relative_action('request-code')}">
+            <input type="hidden" name="lang" value="{escape(lang)}">
             <input type="hidden" name="client_mac" value="{escape(client_mac)}">
             <input type="hidden" name="client_ip" value="{escape(client_ip)}">
             <input type="hidden" name="ap_mac" value="{escape(ap_mac)}">
             <input type="hidden" name="redirect_url" value="{escape(redirect_url)}">
-            <label>Телефон<input name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="9991234567" required autofocus></label>
-            <button type="submit">Получить SMS-код</button>
+            <label>{_pt(lang, "phone")}<input name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="9991234567" required autofocus></label>
+            <button type="submit" data-sending="{_pt(lang, 'sending')}">{_pt(lang, "get_code")}</button>
           </form>
         </main>
       </body>
@@ -357,21 +412,21 @@ def _page_request_phone(client_mac: str, ap_mac: str, redirect_url: str, client_
     """
 
 
-def _page_missing_client(client_ip: str = "") -> str:
+def _page_missing_client(client_ip: str = "", lang: str = "en") -> str:
     details = (
-        f"<p class='error'>IP клиента: {escape(client_ip)}. Клиент не найден в UniFi.</p>"
+        f"<p class='error'>IP: {escape(client_ip)}. {_pt(lang, 'client_not_found')}</p>"
         if client_ip
         else ""
     )
     return f"""
     <!doctype html>
-    <html lang="ru">
+    <html lang="{escape(lang)}">
       <head>{_head("Wi-Fi вход")}</head>
       <body>
         <main>
           {_brand()}
           <h1>{escape(get_settings().hotspot_portal_title)}</h1>
-          <p class="error">Не найден MAC-адрес клиента. Откройте портал через гостевую сеть UniFi.</p>
+          <p class="error">{_pt(lang, "missing_mac")}</p>
           {details}
         </main>
       </body>
@@ -379,23 +434,33 @@ def _page_missing_client(client_ip: str = "") -> str:
     """
 
 
-def _page_verify_code(phone: str, client_mac: str, redirect_url: str, error: bool = False) -> str:
-    message = "<p class='error'>Неверный код. Попробуйте ещё раз.</p>" if error else ""
+def _page_verify_code(
+    phone: str,
+    client_mac: str,
+    redirect_url: str,
+    lang: str = "en",
+    error: bool = False,
+    already_sent: bool = False,
+) -> str:
+    message = f"<p class='error'>{_pt(lang, 'invalid_code')}</p>" if error else ""
+    if already_sent:
+        message = f"<p>{_pt(lang, 'already_sent')}</p>"
     return f"""
     <!doctype html>
-    <html lang="ru">
-      <head>{_head("SMS-код")}</head>
+    <html lang="{escape(lang)}">
+      <head>{_head(_pt(lang, "sms_code"))}</head>
       <body>
         <main>
           {_brand()}
-          <h1>Введите код из SMS</h1>
+          <h1>{_pt(lang, "enter_code")}</h1>
           {message}
           <form method="post" action="{_relative_action('verify-code')}">
+            <input type="hidden" name="lang" value="{escape(lang)}">
             <input type="hidden" name="phone" value="{escape(phone)}">
             <input type="hidden" name="client_mac" value="{escape(client_mac)}">
             <input type="hidden" name="redirect_url" value="{escape(redirect_url)}">
-            <label>Код<input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" enterkeyhint="done" minlength="4" maxlength="10" autocapitalize="off" spellcheck="false" required autofocus></label>
-            <button type="submit">Подключиться</button>
+            <label>{_pt(lang, "code")}<input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" enterkeyhint="done" minlength="4" maxlength="10" autocapitalize="off" spellcheck="false" required autofocus></label>
+            <button type="submit">{_pt(lang, "connect")}</button>
           </form>
         </main>
       </body>
@@ -409,24 +474,25 @@ def _relative_action(action: str) -> str:
 
 def _page_success(
     settings: Settings,
+    lang: str = "en",
     already_authorized: bool = False,
     authorized_at_ts: Optional[int] = None,
     valid_until_ts: Optional[int] = None,
 ) -> str:
     authorized_at, expires_at = _authorization_window(settings, authorized_at_ts, valid_until_ts)
-    title = "Доступ уже открыт" if already_authorized else "Доступ открыт"
+    title = _pt(lang, "access_already_open" if already_authorized else "access_open")
     return f"""
     <!doctype html>
-    <html lang="ru">
-      <head>{_head("Готово")}</head>
+    <html lang="{escape(lang)}">
+      <head>{_head(_pt(lang, "done"))}</head>
       <body>
         <main>
           {_brand()}
           <h1>{title}</h1>
-          <p class="success">Wi-Fi авторизован.</p>
+          <p class="success">{_pt(lang, "wifi_authorized")}</p>
           <dl>
-            <div><dt>Время авторизации</dt><dd>{authorized_at}</dd></div>
-            <div><dt>Действует до</dt><dd>{expires_at}</dd></div>
+            <div><dt>{_pt(lang, "authorized_at")}</dt><dd>{authorized_at}</dd></div>
+            <div><dt>{_pt(lang, "valid_until")}</dt><dd>{expires_at}</dd></div>
           </dl>
         </main>
       </body>
@@ -434,12 +500,12 @@ def _page_success(
     """
 
 
-def _page_error(message: str) -> str:
+def _page_error(message: str, lang: str = "en") -> str:
     return f"""
     <!doctype html>
-    <html lang="ru">
-      <head>{_head("Ошибка")}</head>
-      <body><main>{_brand()}<h1>Ошибка</h1><p class="error">{message}</p></main></body>
+    <html lang="{escape(lang)}">
+      <head>{_head(_pt(lang, "error"))}</head>
+      <body><main>{_brand()}<h1>{_pt(lang, "error")}</h1><p class="error">{message}</p></main></body>
     </html>
     """
 
@@ -478,4 +544,16 @@ def _head(title: str) -> str:
         .success {{ color: #b6f2cb; }}
         .error {{ color: #ffb4ab; }}
       </style>
+      <script>
+        document.addEventListener("DOMContentLoaded", () => {{
+          document.querySelectorAll("form").forEach((form) => {{
+            form.addEventListener("submit", () => {{
+              const button = form.querySelector("button[type=submit]");
+              if (!button || button.disabled) return;
+              if (button.dataset.sending) button.textContent = button.dataset.sending;
+              button.disabled = true;
+            }});
+          }});
+        }});
+      </script>
     """

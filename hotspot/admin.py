@@ -42,6 +42,9 @@ TEXT = {
         "traffic": "Traffic",
         "unifi": "UniFi",
         "actions": "Actions",
+        "extend": "Extend",
+        "edit": "Edit",
+        "name": "Name",
         "no_active": "No active clients",
         "duration": "Duration",
         "status": "Status",
@@ -72,6 +75,9 @@ TEXT = {
         "traffic": "Трафик",
         "unifi": "UniFi",
         "actions": "Действия",
+        "extend": "Продлить",
+        "edit": "Изменить",
+        "name": "Имя",
         "no_active": "Активных клиентов нет",
         "duration": "Срок",
         "status": "Статус",
@@ -188,6 +194,19 @@ async def revoke_client(
     return _redirect(message="Authorization revoked", lang=lang)
 
 
+@router.post("/clients/{client_mac}/name")
+def update_client_name(
+    client_mac: str,
+    display_name: str = Form(default=""),
+    lang: str = Form(default="en"),
+    settings: Settings = Depends(require_admin),
+    store: Store = Depends(get_store),
+):
+    if not HotspotStore(store).set_display_name(client_mac, display_name):
+        return _redirect(error="Client was not found", lang=lang)
+    return _redirect(message="Client name updated", lang=lang)
+
+
 @router.post("/clients/{client_mac}/block")
 async def block_client(
     client_mac: str,
@@ -269,8 +288,11 @@ def _set_env_value(path: Path, key: str, value: str) -> None:
 
 
 def _lang(request: Request) -> str:
-    value = request.query_params.get("lang", "en").lower()
-    return value if value in TEXT else "en"
+    value = request.query_params.get("lang", "").lower()
+    if value in TEXT:
+        return value
+    accepted = request.headers.get("accept-language", "").lower()
+    return "ru" if accepted.startswith("ru") or ",ru" in accepted else "en"
 
 
 def _t(lang: str, key: str) -> str:
@@ -348,17 +370,16 @@ def _active_table(
         client = unifi_clients.get(mac, {})
         rows.append(
             "<tr>"
-            f"<td><strong>{html.escape(mac)}</strong><small>{html.escape(str(client.get('name') or client.get('hostname') or ''))}</small></td>"
+            f"<td>{_client_identity(session, client, mac, lang)}</td>"
             f"<td>{html.escape(str(session['phone']))}</td>"
             f"<td>{html.escape(str(client.get('ip') or ''))}</td>"
             f"<td>{_dt(session['authorized_at'])}</td>"
             f"<td>{_dt(session['valid_until'])}</td>"
-            f"<td>{_traffic(client)}</td>"
-            f"<td>{_client_meta(client)}</td>"
-            f"<td>{_actions(mac, lang)}</td>"
+            f"<td>{_extend_actions(mac, lang)}</td>"
+            f"<td>{_revoke_actions(mac, lang)}</td>"
             "</tr>"
         )
-    body = "\n".join(rows) if rows else f"<tr><td colspan='8' class='empty'>{_t(lang, 'no_active')}</td></tr>"
+    body = "\n".join(rows) if rows else f"<tr><td colspan='7' class='empty'>{_t(lang, 'no_active')}</td></tr>"
     return f"""
     <section>
       <h2>{_t(lang, "active_clients")}</h2>
@@ -366,7 +387,7 @@ def _active_table(
         <thead>
           <tr>
             <th>{_t(lang, "client")}</th><th>{_t(lang, "phone")}</th><th>{_t(lang, "ip")}</th><th>{_t(lang, "authorized")}</th>
-            <th>{_t(lang, "valid_until")}</th><th>{_t(lang, "traffic")}</th><th>{_t(lang, "unifi")}</th><th>{_t(lang, "actions")}</th>
+            <th>{_t(lang, "valid_until")}</th><th>{_t(lang, "extend")}</th><th>{_t(lang, "revoke")}</th>
           </tr>
         </thead>
         <tbody>{body}</tbody>
@@ -375,7 +396,20 @@ def _active_table(
     """
 
 
-def _actions(mac: str, lang: str = "en") -> str:
+def _client_identity(session, client: dict[str, Any], mac: str, lang: str) -> str:
+    name = str(session["display_name"] or client.get("name") or client.get("hostname") or "")
+    return f"""
+    <strong>{html.escape(name or mac)}</strong>
+    <small>{html.escape(mac)}</small>
+    <form class="client-name" method="post" action="/admin/clients/{html.escape(mac)}/name">
+      <input type="hidden" name="lang" value="{html.escape(lang)}">
+      <input name="display_name" value="{html.escape(name)}" maxlength="120" placeholder="{_t(lang, 'name')}">
+      <button>{_t(lang, 'edit')}</button>
+    </form>
+    """
+
+
+def _extend_actions(mac: str, lang: str = "en") -> str:
     options = "".join(
         f"<button name='days' value='{days}'>{days}d</button>"
         for days in (1, 2, 7, 14, 30, 365)
@@ -383,6 +417,13 @@ def _actions(mac: str, lang: str = "en") -> str:
     return f"""
     <div class="actions">
       <form method="post" action="/admin/clients/{html.escape(mac)}/extend"><input type="hidden" name="lang" value="{html.escape(lang)}">{options}</form>
+    </div>
+    """
+
+
+def _revoke_actions(mac: str, lang: str = "en") -> str:
+    return f"""
+    <div class="actions">
       <form method="post" action="/admin/clients/{html.escape(mac)}/revoke"><input type="hidden" name="lang" value="{html.escape(lang)}"><button>{_t(lang, "revoke")}</button></form>
       <form method="post" action="/admin/clients/{html.escape(mac)}/block"><input type="hidden" name="lang" value="{html.escape(lang)}"><button class="danger">{_t(lang, "block")}</button></form>
     </div>
@@ -479,7 +520,7 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
     en_active = "class='active'" if lang == "en" else ""
     return f"""
     <!doctype html>
-    <html lang="en">
+    <html lang="{html.escape(lang)}">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -515,6 +556,9 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           button.danger {{ background: #b91c1c; }}
           .actions {{ display: grid; gap: 8px; min-width: 260px; }}
           .actions form {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+          .client-name {{ display: flex; gap: 6px; margin-top: 8px; min-width: 230px; }}
+          .client-name input {{ min-width: 0; width: 150px; padding: 6px 8px; }}
+          .client-name button {{ padding: 6px 8px; }}
           .notice {{ padding: 11px 13px; border-radius: 6px; font-weight: 700; }}
           .success {{ background: #dcfce7; color: #166534; }}
           .error {{ background: #fee2e2; color: #991b1b; }}
