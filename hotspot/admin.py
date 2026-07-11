@@ -600,7 +600,7 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           .section-head {{ display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 14px; }}
           h2 {{ font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }}
           section > h2 {{ margin-bottom: 14px; }}
-          .tabs {{ display: flex; justify-content: flex-end; gap: 4px; padding: 3px; background: #e9ebed; border-radius: 8px; }}
+          .tabs {{ display: inline-flex; width: max-content; justify-content: flex-end; gap: 4px; padding: 3px; background: #e9ebed; border-radius: 8px; }}
           .tabs a {{ padding: 7px 12px; border-radius: 6px; font-size: 13px; }}
           .tabs a.active {{ color: #18212b; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
           table {{ width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
@@ -671,11 +671,16 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           [data-theme="dark"] .moon-icon {{ display: block; }}
           @media (max-width: 900px) {{
             header {{ justify-content: flex-start; padding-right: 96px; }}
-            .section-head {{ display: block; }}
-            .tabs {{ justify-content: flex-start; margin-top: 10px; }}
-            .table-tools {{ align-items: flex-start; margin-top: 10px; }}
-            main {{ padding: 14px; overflow-x: auto; }}
-            form.settings, form.test-sms {{ grid-template-columns: 1fr; }}
+            .section-head {{ display: flex; flex-wrap: wrap; align-items: center; }}
+            .tabs {{ flex: 0 0 auto; justify-content: flex-start; margin: 0; }}
+            .table-tools {{ flex: 0 0 auto; align-items: center; margin: 0; }}
+            main {{ padding: 14px; overflow-x: hidden; }}
+            form.settings {{ grid-template-columns: minmax(0, 1fr) 76px; align-items: end; }}
+            form.settings > label:first-of-type {{ grid-column: 1; grid-row: 1; }}
+            form.settings .logo-picker {{ grid-column: 2; grid-row: 1; }}
+            form.settings .logo-preview {{ width: 64px; height: 64px; }}
+            form.settings .save-button {{ grid-column: 1; grid-row: 2; width: auto; justify-self: start; }}
+            form.test-sms {{ grid-template-columns: 1fr; }}
             .active-table {{ display: block; table-layout: auto; border: 0; background: transparent; box-shadow: none; overflow: visible; }}
             .active-table colgroup, .active-table thead {{ display: none; }}
             .active-table tbody {{ display: grid; gap: 12px; }}
@@ -686,6 +691,12 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
             .active-table .actions {{ width: 100%; }}
             .active-table .actions form {{ justify-content: flex-start; }}
             [data-theme="dark"] .active-table tr {{ background: #181d23; border-color: #303741; box-shadow: none; }}
+          }}
+          @media (max-width: 520px) {{
+            .section-head {{ align-items: flex-start; }}
+            .section-head > h2 {{ flex: 1 0 100%; margin-bottom: 10px; }}
+            .table-tools {{ flex-wrap: wrap; }}
+            .export-button, .tabs a {{ min-height: 32px; padding-left: 10px; padding-right: 10px; }}
           }}
         </style>
       </head>
