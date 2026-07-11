@@ -134,7 +134,10 @@ def admin_archive(
     return HTMLResponse(
         _layout(
             "Archive",
-            _messages(message, error) + _archive_table(rows, lang),
+            _messages(message, error)
+            + _settings_form(settings, lang, "archive")
+            + _test_sms_form(lang)
+            + _archive_table(rows, lang),
             active_tab="archive",
             lang=lang,
         )
@@ -330,11 +333,11 @@ def _settings_form(settings: Settings, lang: str, active_tab: str) -> str:
       <form class="settings" method="post" action="/admin/settings" enctype="multipart/form-data">
         <input type="hidden" name="lang" value="{html.escape(lang)}">
         <label>{_t(lang, "welcome_text")}<input name="title" value="{title}" maxlength="120"></label>
-        <label>{_t(lang, "logo")}
-          <span class="file-picker">
+        <label class="logo-picker" title="{_t(lang, 'choose_file')}">
+          <span>{_t(lang, "logo")}</span>
+          <span class="logo-preview">
             <input id="logo-file" name="logo" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml">
-            <span class="file-button">{_t(lang, "choose_file")}</span>
-            <span class="file-name" id="logo-file-name">{_t(lang, "no_file")}</span>
+            <img id="logo-preview" src="/assets/hotspot-logo" alt="{_t(lang, 'logo')}">
           </span>
         </label>
         <button class="save-button" type="submit">{_t(lang, "save")}</button>
@@ -398,12 +401,11 @@ def _active_table(
 def _client_identity(session, client: dict[str, Any], mac: str, lang: str) -> str:
     name = str(session["display_name"] or client.get("name") or client.get("hostname") or "")
     return f"""
-    <strong>{html.escape(name or mac)}</strong>
+    <button type="button" class="client-display" title="{_t(lang, 'edit')}">{html.escape(name or mac)}</button>
     <small>{html.escape(mac)}</small>
-    <form class="client-name" method="post" action="/admin/clients/{html.escape(mac)}/name">
+    <form class="client-name" method="post" action="/admin/clients/{html.escape(mac)}/name" hidden>
       <input type="hidden" name="lang" value="{html.escape(lang)}">
       <input name="display_name" value="{html.escape(name)}" maxlength="120" placeholder="{_t(lang, 'name')}">
-      <button>{_t(lang, 'edit')}</button>
     </form>
     """
 
@@ -523,6 +525,7 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="icon" href="/assets/hotspot-logo">
         <title>{html.escape(title)} - SMS Gateway Admin</title>
         <style>
           * {{ box-sizing: border-box; }}
@@ -549,18 +552,20 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           input {{ border: 1px solid #cfd4da; border-radius: 6px; padding: 9px 10px; background: #fff; font: inherit; outline: none; }}
           input:focus {{ border-color: #006fff; box-shadow: 0 0 0 2px rgba(0,111,255,.14); }}
           input[type=file] {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
-          .file-picker {{ display: flex; align-items: center; gap: 10px; min-height: 38px; }}
-          .file-button {{ display: inline-flex; align-items: center; min-height: 38px; padding: 0 12px; border-radius: 6px; background: #eef5ff; color: #006fff; cursor: pointer; white-space: nowrap; }}
-          .file-name {{ color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+          .logo-picker {{ align-content: start; cursor: pointer; }}
+          .logo-preview {{ width: 64px; height: 64px; display: grid; place-items: center; overflow: hidden; border: 1px solid #dfe3e8; border-radius: 10px; background: #f6f7f8; transition: border-color .15s, box-shadow .15s; }}
+          .logo-preview:hover {{ border-color: #006fff; box-shadow: 0 0 0 2px rgba(0,111,255,.12); }}
+          .logo-preview img {{ display: block; width: 100%; height: 100%; object-fit: contain; padding: 5px; }}
           button {{ border: 0; border-radius: 6px; padding: 8px 10px; background: #006fff; color: #fff; font-weight: 600; cursor: pointer; }}
           button:hover {{ background: #0062e5; }}
           .save-button {{ min-width: 96px; width: auto; justify-self: start; min-height: 38px; padding: 0 16px; }}
           button.danger {{ background: #b91c1c; }}
           .actions {{ display: grid; gap: 8px; min-width: 260px; }}
           .actions form {{ display: flex; flex-wrap: wrap; gap: 6px; }}
-          .client-name {{ display: flex; gap: 6px; margin-top: 8px; min-width: 230px; }}
-          .client-name input {{ min-width: 0; width: 150px; padding: 6px 8px; }}
-          .client-name button {{ padding: 6px 8px; }}
+          .client-display {{ padding: 0; background: none; color: #18212b; font-weight: 600; text-align: left; border-bottom: 1px dashed transparent; }}
+          .client-display:hover {{ background: none; color: #006fff; border-bottom-color: #006fff; }}
+          .client-name {{ margin-top: 5px; min-width: 170px; }}
+          .client-name input {{ min-width: 0; width: 170px; padding: 6px 8px; }}
           .notice {{ padding: 11px 13px; border-radius: 6px; font-weight: 700; }}
           .success {{ background: #dcfce7; color: #166534; }}
           .error {{ background: #fee2e2; color: #991b1b; }}
@@ -586,12 +591,27 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
         <main>{content}</main>
         <script>
           const logoInput = document.getElementById("logo-file");
-          const logoName = document.getElementById("logo-file-name");
-          if (logoInput && logoName) {{
+          const logoPreview = document.getElementById("logo-preview");
+          if (logoInput && logoPreview) {{
             logoInput.addEventListener("change", () => {{
-              logoName.textContent = logoInput.files.length ? logoInput.files[0].name : "{_t(lang, "no_file")}";
+              if (logoInput.files.length) logoPreview.src = URL.createObjectURL(logoInput.files[0]);
             }});
           }}
+          document.querySelectorAll(".client-display").forEach((display) => {{
+            display.addEventListener("click", () => {{
+              const form = display.parentElement.querySelector(".client-name");
+              display.hidden = true;
+              form.hidden = false;
+              const input = form.querySelector("input[name=display_name]");
+              input.dataset.original = input.value;
+              input.focus();
+              input.select();
+              input.addEventListener("blur", () => {{
+                if (input.value !== input.dataset.original) form.requestSubmit();
+                else {{ form.hidden = true; display.hidden = false; }}
+              }}, {{ once: true }});
+            }});
+          }});
         </script>
       </body>
     </html>

@@ -561,6 +561,7 @@ def _head(title: str) -> str:
     return f"""
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="icon" href="/assets/hotspot-logo">
       <title>{escape(title)}</title>
       <style>
         :root {{ color-scheme: dark; }}
