@@ -178,15 +178,30 @@ class UniFiClient:
         site_id = await self._integration_site_id(client)
         params: dict[str, object] = {"limit": 100}
         if mac_address:
-            params["filter"] = f"macAddress.eq('{mac_address.upper()}')"
+            params["filter"] = f"macAddress.eq('{mac_address.lower()}')"
         elif ip_address:
             params["filter"] = f"ipAddress.eq('{ip_address}')"
-        response = await client.get(
-            f"/proxy/network/integration/v1/sites/{site_id}/clients", params=params
-        )
+        path = f"/proxy/network/integration/v1/sites/{site_id}/clients"
+        response = await client.get(path, params=params)
         self._raise_integration_error(response)
         data = response.json().get("data", [])
-        return data if isinstance(data, list) else []
+        clients = data if isinstance(data, list) else []
+
+        # Some UniFi Network releases compare MAC filters case-sensitively even
+        # though MAC addresses themselves are case-insensitive. If the filtered
+        # request found nothing, fetch the connected clients and compare locally.
+        if mac_address and not clients:
+            response = await client.get(path, params={"limit": 100})
+            self._raise_integration_error(response)
+            data = response.json().get("data", [])
+            if isinstance(data, list):
+                expected = mac_address.lower()
+                clients = [
+                    item
+                    for item in data
+                    if str(item.get("macAddress", "")).lower() == expected
+                ]
+        return clients
 
     async def _integration_client_action(
         self,
