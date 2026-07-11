@@ -1,4 +1,6 @@
+import csv
 import html
+import io
 import shutil
 import time
 from datetime import datetime
@@ -6,7 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
 from api.config import Settings, get_settings
 from api.deps import get_store
@@ -52,6 +54,7 @@ TEXT = {
         "revoke": "Revoke",
         "block": "Block",
         "theme": "Toggle theme",
+        "export_csv": "Export CSV",
         "portal_saved": "Portal settings updated",
         "sms_sent": "Test SMS sent",
     },
@@ -86,6 +89,7 @@ TEXT = {
         "revoke": "Отозвать",
         "block": "Блокировать",
         "theme": "Сменить тему",
+        "export_csv": "Выгрузить CSV",
         "portal_saved": "Настройки портала сохранены",
         "sms_sent": "Тестовая SMS отправлена",
     },
@@ -144,6 +148,34 @@ def admin_archive(
             lang=lang,
         )
     )
+
+
+@router.get("/archive.csv")
+def export_archive_csv(
+    settings: Settings = Depends(require_admin),
+    store: Store = Depends(get_store),
+) -> StreamingResponse:
+    output = io.StringIO()
+    output.write("\ufeff")
+    writer = csv.writer(output)
+    writer.writerow(
+        ["Name", "MAC", "Phone", "Authorized at", "Valid until", "Duration days", "Status"]
+    )
+    now = int(time.time())
+    for row in HotspotStore(store).list_archive(limit=100000):
+        writer.writerow(
+            [
+                row["display_name"] or "",
+                row["client_mac"],
+                row["phone"],
+                _dt(row["authorized_at"]),
+                _dt(row["valid_until"]),
+                row["minutes"] // 1440,
+                _archive_status(row, now),
+            ]
+        )
+    headers = {"Content-Disposition": 'attachment; filename="hotspot-archive.csv"'}
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @router.post("/clients/{client_mac}/extend")
@@ -390,7 +422,12 @@ def _active_table(
     return f"""
     <section>
       <div class="section-head"><h2>{_t(lang, "active_clients")}</h2>{_tabs(lang, "active")}</div>
-      <table>
+      <table class="active-table">
+        <colgroup>
+          <col class="col-client"><col class="col-phone"><col class="col-ip">
+          <col class="col-date"><col class="col-date"><col class="col-extend">
+          <col class="col-action"><col class="col-action">
+        </colgroup>
         <thead>
           <tr>
             <th>{_t(lang, "client")}</th><th>{_t(lang, "phone")}</th><th>{_t(lang, "ip")}</th><th>{_t(lang, "authorized")}</th>
@@ -447,11 +484,7 @@ def _archive_table(rows, lang: str) -> str:
     now = int(time.time())
     table_rows = []
     for row in rows:
-        status = "active" if row["valid_until"] > now and not row["revoked_at"] and not row["blocked_at"] else "expired"
-        if row["revoked_at"]:
-            status = "revoked"
-        if row["blocked_at"]:
-            status = "blocked"
+        status = _archive_status(row, now)
         table_rows.append(
             "<tr>"
             f"<td><strong>{html.escape(str(row['display_name'] or row['client_mac']))}</strong><small>{html.escape(str(row['client_mac']))}</small></td>"
@@ -465,7 +498,7 @@ def _archive_table(rows, lang: str) -> str:
     body = "\n".join(table_rows) if table_rows else f"<tr><td colspan='6' class='empty'>{_t(lang, 'empty_archive')}</td></tr>"
     return f"""
     <section>
-      <div class="section-head"><h2>{_t(lang, "archive")}</h2>{_tabs(lang, "archive")}</div>
+      <div class="section-head"><h2>{_t(lang, "archive")}</h2><div class="table-tools"><a class="export-button" href="/admin/archive.csv">{_t(lang, "export_csv")}</a>{_tabs(lang, "archive")}</div></div>
       <table>
         <thead>
           <tr><th>{_t(lang, "client")}</th><th>{_t(lang, "phone")}</th><th>{_t(lang, "authorized")}</th><th>{_t(lang, "valid_until")}</th><th>{_t(lang, "duration")}</th><th>{_t(lang, "status")}</th></tr>
@@ -474,6 +507,14 @@ def _archive_table(rows, lang: str) -> str:
       </table>
     </section>
     """
+
+
+def _archive_status(row, now: int) -> str:
+    if row["blocked_at"]:
+        return "blocked"
+    if row["revoked_at"]:
+        return "revoked"
+    return "active" if row["valid_until"] > now else "expired"
 
 
 def _client_meta(client: dict[str, Any]) -> str:
@@ -558,12 +599,21 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           section {{ margin-bottom: 24px; }}
           .section-head {{ display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 14px; }}
           h2 {{ font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }}
+          section > h2 {{ margin-bottom: 14px; }}
           .tabs {{ display: flex; justify-content: flex-end; gap: 4px; padding: 3px; background: #e9ebed; border-radius: 8px; }}
           .tabs a {{ padding: 7px 12px; border-radius: 6px; font-size: 13px; }}
           .tabs a.active {{ color: #18212b; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
           table {{ width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
           th, td {{ padding: 12px 14px; border-bottom: 1px solid #edf0f2; text-align: left; vertical-align: top; font-size: 13px; }}
           th {{ background: #f8f9fa; color: #69727d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }}
+          .active-table {{ table-layout: fixed; }}
+          .active-table .col-client {{ width: 19%; }}
+          .active-table .col-phone {{ width: 12%; }}
+          .active-table .col-ip {{ width: 9%; }}
+          .active-table .col-date {{ width: 13%; }}
+          .active-table .col-extend {{ width: 19%; }}
+          .active-table .col-action {{ width: 7%; }}
+          .active-table td:nth-child(4), .active-table td:nth-child(5) {{ white-space: nowrap; }}
           small {{ display: block; color: #64748b; margin-top: 3px; }}
           form.settings, form.test-sms {{ display: grid; gap: 14px; align-items: end; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
           form.settings {{ grid-template-columns: minmax(320px, 1fr) 90px 110px; align-items: center; }}
@@ -581,8 +631,9 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           .save-button {{ min-width: 96px; width: auto; justify-self: start; min-height: 38px; padding: 0 16px; }}
           .settings .save-button {{ width: 100%; justify-self: stretch; }}
           button.danger {{ background: #b91c1c; }}
-          .actions {{ display: grid; gap: 8px; min-width: 260px; }}
+          .actions {{ display: grid; gap: 8px; min-width: 0; }}
           .actions form {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+          .actions button {{ white-space: nowrap; }}
           .client-display {{ padding: 0; background: none; color: #18212b; font-weight: 600; text-align: left; border-bottom: 1px dashed transparent; }}
           .client-display:hover {{ background: none; color: #006fff; border-bottom-color: #006fff; }}
           .client-name {{ margin-top: 5px; min-width: 170px; }}
@@ -595,6 +646,9 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           .badge.active {{ background: #dcfce7; color: #166534; }}
           .badge.revoked {{ background: #fef3c7; color: #92400e; }}
           .badge.blocked {{ background: #fee2e2; color: #991b1b; }}
+          .table-tools {{ display: flex; align-items: center; gap: 10px; }}
+          .export-button {{ display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border: 1px solid #cfd4da; border-radius: 7px; background: #fff; color: #39424e; font-size: 13px; font-weight: 600; text-decoration: none; }}
+          .export-button:hover {{ border-color: #006fff; color: #006fff; }}
           .theme-toggle {{ width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 1px solid #dfe3e8; border-radius: 8px; background: #f7f8f9; color: #5f6873; }}
           .theme-toggle:hover {{ background: #eef5ff; color: #006fff; }}
           .theme-toggle svg {{ width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }}
@@ -612,14 +666,17 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           [data-theme="dark"] .tabs {{ background: #262c33; }}
           [data-theme="dark"] .tabs a.active {{ background: #3a424c; color: #fff; box-shadow: none; }}
           [data-theme="dark"] .theme-toggle {{ background: #242a31; border-color: #3a424c; color: #d6dbe0; }}
+          [data-theme="dark"] .export-button {{ background: #181d23; border-color: #3a424c; color: #d6dbe0; }}
           [data-theme="dark"] .sun-icon {{ display: none; }}
           [data-theme="dark"] .moon-icon {{ display: block; }}
           @media (max-width: 900px) {{
             header {{ justify-content: flex-start; padding-right: 96px; }}
             .section-head {{ display: block; }}
             .tabs {{ justify-content: flex-start; margin-top: 10px; }}
+            .table-tools {{ align-items: flex-start; margin-top: 10px; }}
             main {{ padding: 14px; overflow-x: auto; }}
             form.settings, form.test-sms {{ grid-template-columns: 1fr; }}
+            .active-table {{ min-width: 1050px; }}
           }}
         </style>
       </head>
