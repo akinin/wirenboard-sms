@@ -408,17 +408,26 @@ def _page_request_phone(
           </form>
           <section id="code-step" hidden>
             <h1>{_pt(lang, "enter_code")}</h1>
-            <form method="post" action="{_relative_action('verify-code')}">
+            <form id="verify-code-form" method="post" action="{_relative_action('verify-code')}">
               <input type="hidden" name="lang" value="{escape(lang)}">
               <input id="verify-phone" type="hidden" name="phone">
               <input type="hidden" name="client_mac" value="{escape(client_mac)}">
               <input type="hidden" name="redirect_url" value="{escape(redirect_url)}">
               <label>{_pt(lang, "code")}<input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" enterkeyhint="done" minlength="4" maxlength="10" autocapitalize="off" spellcheck="false" required></label>
-              <button type="submit">{_pt(lang, "connect")}</button>
+              <button id="connect-button" type="submit" disabled>{_pt(lang, "connect")}</button>
             </form>
           </section>
           <script>
             const requestForm = document.getElementById("request-code-form");
+            const verifyForm = document.getElementById("verify-code-form");
+            const connectButton = document.getElementById("connect-button");
+            let codeRequestReady = false;
+            let verificationQueued = false;
+            verifyForm.addEventListener("submit", (event) => {{
+              if (codeRequestReady) return;
+              event.preventDefault();
+              verificationQueued = true;
+            }});
             requestForm.addEventListener("submit", async (event) => {{
               event.preventDefault();
               if (!requestForm.reportValidity()) return;
@@ -435,13 +444,19 @@ def _page_request_phone(
                   body: new FormData(requestForm),
                 }});
                 const result = await response.text();
-                if (!response.ok || !result.includes('id="code"')) {{
+                if (!response.ok) {{
                   document.open();
                   document.write(result);
                   document.close();
+                  return;
                 }}
+                codeRequestReady = true;
+                connectButton.disabled = false;
+                if (verificationQueued && codeInput.value) verifyForm.requestSubmit();
               }} catch (error) {{
-                requestForm.submit();
+                requestForm.hidden = false;
+                codeStep.hidden = true;
+                requestForm.querySelector("button[type=submit]").disabled = false;
               }}
             }});
           </script>
