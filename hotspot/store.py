@@ -70,6 +70,29 @@ class HotspotStore:
             }
             if "display_name" not in auth_columns:
                 conn.execute("ALTER TABLE hotspot_authorizations ADD COLUMN display_name TEXT")
+            conn.execute(
+                """
+                UPDATE hotspot_authorizations AS older
+                SET revoked_at = (
+                    SELECT MIN(newer.authorized_at)
+                    FROM hotspot_authorizations AS newer
+                    WHERE newer.client_mac = older.client_mac
+                      AND newer.id > older.id
+                      AND newer.revoked_at IS NULL
+                      AND newer.blocked_at IS NULL
+                )
+                WHERE older.revoked_at IS NULL
+                  AND older.blocked_at IS NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM hotspot_authorizations AS newer
+                    WHERE newer.client_mac = older.client_mac
+                      AND newer.id > older.id
+                      AND newer.revoked_at IS NULL
+                      AND newer.blocked_at IS NULL
+                  )
+                """
+            )
 
     def save_session(
         self,
@@ -116,6 +139,16 @@ class HotspotStore:
                 (client_mac,),
             ).fetchone()
             if row:
+                # A client can only have one current authorization. Extending
+                # access closes the previous history row before creating the new one.
+                conn.execute(
+                    """
+                    UPDATE hotspot_authorizations
+                    SET revoked_at = ?
+                    WHERE client_mac = ? AND revoked_at IS NULL AND blocked_at IS NULL
+                    """,
+                    (authorized_at, client_mac),
+                )
                 conn.execute(
                     """
                     INSERT INTO hotspot_authorizations(

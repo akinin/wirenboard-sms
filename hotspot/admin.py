@@ -324,10 +324,9 @@ def _messages(message: str, error: str) -> str:
 
 def _settings_form(settings: Settings, lang: str, active_tab: str) -> str:
     title = html.escape(settings.hotspot_portal_title)
-    tabs = _tabs(lang, active_tab)
     return f"""
     <section>
-      <div class="section-head"><h2>{_t(lang, "portal")}</h2>{tabs}</div>
+      <div class="section-head"><h2>{_t(lang, "portal")}</h2></div>
       <form class="settings" method="post" action="/admin/settings" enctype="multipart/form-data">
         <input type="hidden" name="lang" value="{html.escape(lang)}">
         <label>{_t(lang, "welcome_text")}<input name="title" value="{title}" maxlength="120"></label>
@@ -382,7 +381,7 @@ def _active_table(
     body = "\n".join(rows) if rows else f"<tr><td colspan='7' class='empty'>{_t(lang, 'no_active')}</td></tr>"
     return f"""
     <section>
-      <h2>{_t(lang, "active_clients")}</h2>
+      <div class="section-head"><h2>{_t(lang, "active_clients")}</h2>{_tabs(lang, "active")}</div>
       <table>
         <thead>
           <tr>
@@ -441,7 +440,7 @@ def _archive_table(rows, lang: str) -> str:
             status = "blocked"
         table_rows.append(
             "<tr>"
-            f"<td>{html.escape(str(row['client_mac']))}</td>"
+            f"<td><strong>{html.escape(str(row['display_name'] or row['client_mac']))}</strong><small>{html.escape(str(row['client_mac']))}</small></td>"
             f"<td>{html.escape(str(row['phone']))}</td>"
             f"<td>{_dt(row['authorized_at'])}</td>"
             f"<td>{_dt(row['valid_until'])}</td>"
@@ -455,7 +454,7 @@ def _archive_table(rows, lang: str) -> str:
       <div class="section-head"><h2>{_t(lang, "archive")}</h2>{_tabs(lang, "archive")}</div>
       <table>
         <thead>
-          <tr><th>MAC</th><th>{_t(lang, "phone")}</th><th>{_t(lang, "authorized")}</th><th>{_t(lang, "valid_until")}</th><th>{_t(lang, "duration")}</th><th>{_t(lang, "status")}</th></tr>
+          <tr><th>{_t(lang, "client")}</th><th>{_t(lang, "phone")}</th><th>{_t(lang, "authorized")}</th><th>{_t(lang, "valid_until")}</th><th>{_t(lang, "duration")}</th><th>{_t(lang, "status")}</th></tr>
         </thead>
         <tbody>{body}</tbody>
       </table>
@@ -527,31 +526,34 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
         <title>{html.escape(title)} - SMS Gateway Admin</title>
         <style>
           * {{ box-sizing: border-box; }}
-          body {{ margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #f5f7fa; color: #17202c; }}
-          header {{ position: relative; display: flex; justify-content: center; align-items: center; padding: 18px 112px 18px 28px; background: #111827; color: #fff; }}
-          header h1 {{ margin: 0; font-size: 20px; letter-spacing: 0; }}
+          body {{ margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: #f4f5f6; color: #18212b; }}
+          header {{ position: relative; display: flex; justify-content: flex-start; align-items: center; padding: 15px 112px 15px 28px; background: #fff; color: #18212b; border-bottom: 1px solid #e5e7ea; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
+          header h1 {{ margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }}
           .language {{ position: absolute; right: 28px; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; }}
           .language a, .tabs a {{ color: #64748b; text-decoration: none; font-weight: 800; }}
-          .language a {{ color: #cbd5e1; font-size: 13px; }}
-          .language a.active {{ color: #fff; }}
-          main {{ max-width: 1320px; margin: 0 auto; padding: 24px; }}
+          .language a {{ color: #88919b; font-size: 12px; }}
+          .language a.active {{ color: #006fff; }}
+          main {{ max-width: 1440px; margin: 0 auto; padding: 28px; }}
           section {{ margin-bottom: 24px; }}
           .section-head {{ display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 14px; }}
-          h2 {{ font-size: 18px; margin: 0; }}
-          .tabs {{ display: flex; justify-content: flex-end; gap: 18px; }}
-          .tabs a.active {{ color: #111827; }}
-          table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9e0ea; }}
-          th, td {{ padding: 11px 12px; border-bottom: 1px solid #e6ebf2; text-align: left; vertical-align: top; font-size: 14px; }}
-          th {{ background: #edf2f7; color: #475569; font-size: 12px; text-transform: uppercase; }}
+          h2 {{ font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -.01em; }}
+          .tabs {{ display: flex; justify-content: flex-end; gap: 4px; padding: 3px; background: #e9ebed; border-radius: 8px; }}
+          .tabs a {{ padding: 7px 12px; border-radius: 6px; font-size: 13px; }}
+          .tabs a.active {{ color: #18212b; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
+          table {{ width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
+          th, td {{ padding: 12px 14px; border-bottom: 1px solid #edf0f2; text-align: left; vertical-align: top; font-size: 13px; }}
+          th {{ background: #f8f9fa; color: #69727d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }}
           small {{ display: block; color: #64748b; margin-top: 3px; }}
-          form.settings, form.test-sms {{ display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; gap: 12px; align-items: end; background: #fff; border: 1px solid #d9e0ea; padding: 16px; }}
+          form.settings, form.test-sms {{ display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; gap: 14px; align-items: end; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
           label {{ display: grid; gap: 6px; font-size: 13px; color: #475569; font-weight: 700; }}
-          input {{ border: 1px solid #cbd5e1; border-radius: 6px; padding: 9px 10px; font: inherit; }}
+          input {{ border: 1px solid #cfd4da; border-radius: 6px; padding: 9px 10px; background: #fff; font: inherit; outline: none; }}
+          input:focus {{ border-color: #006fff; box-shadow: 0 0 0 2px rgba(0,111,255,.14); }}
           input[type=file] {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
           .file-picker {{ display: flex; align-items: center; gap: 10px; min-height: 38px; }}
-          .file-button {{ display: inline-flex; align-items: center; min-height: 38px; padding: 0 12px; border-radius: 6px; background: #1f2937; color: #fff; cursor: pointer; white-space: nowrap; }}
+          .file-button {{ display: inline-flex; align-items: center; min-height: 38px; padding: 0 12px; border-radius: 6px; background: #eef5ff; color: #006fff; cursor: pointer; white-space: nowrap; }}
           .file-name {{ color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-          button {{ border: 0; border-radius: 6px; padding: 8px 10px; background: #1f2937; color: #fff; font-weight: 700; cursor: pointer; }}
+          button {{ border: 0; border-radius: 6px; padding: 8px 10px; background: #006fff; color: #fff; font-weight: 600; cursor: pointer; }}
+          button:hover {{ background: #0062e5; }}
           .save-button {{ min-width: 96px; width: auto; justify-self: start; min-height: 38px; padding: 0 16px; }}
           button.danger {{ background: #b91c1c; }}
           .actions {{ display: grid; gap: 8px; min-width: 260px; }}

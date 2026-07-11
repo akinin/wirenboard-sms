@@ -397,15 +397,54 @@ def _page_request_phone(
         <main>
           {_brand()}
           <h1>{escape(get_settings().hotspot_portal_title)}</h1>
-          <form method="post" action="{_relative_action('request-code')}">
+          <form id="request-code-form" method="post" action="{_relative_action('request-code')}">
             <input type="hidden" name="lang" value="{escape(lang)}">
             <input type="hidden" name="client_mac" value="{escape(client_mac)}">
             <input type="hidden" name="client_ip" value="{escape(client_ip)}">
             <input type="hidden" name="ap_mac" value="{escape(ap_mac)}">
             <input type="hidden" name="redirect_url" value="{escape(redirect_url)}">
-            <label>{_pt(lang, "phone")}<input name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="9991234567" required autofocus></label>
-            <button type="submit" data-sending="{_pt(lang, 'sending')}">{_pt(lang, "get_code")}</button>
+            <label>{_pt(lang, "phone")}<input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="9991234567" required autofocus></label>
+            <button type="submit">{_pt(lang, "get_code")}</button>
           </form>
+          <section id="code-step" hidden>
+            <h1>{_pt(lang, "enter_code")}</h1>
+            <form method="post" action="{_relative_action('verify-code')}">
+              <input type="hidden" name="lang" value="{escape(lang)}">
+              <input id="verify-phone" type="hidden" name="phone">
+              <input type="hidden" name="client_mac" value="{escape(client_mac)}">
+              <input type="hidden" name="redirect_url" value="{escape(redirect_url)}">
+              <label>{_pt(lang, "code")}<input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" enterkeyhint="done" minlength="4" maxlength="10" autocapitalize="off" spellcheck="false" required></label>
+              <button type="submit">{_pt(lang, "connect")}</button>
+            </form>
+          </section>
+          <script>
+            const requestForm = document.getElementById("request-code-form");
+            requestForm.addEventListener("submit", async (event) => {{
+              event.preventDefault();
+              if (!requestForm.reportValidity()) return;
+              const phone = document.getElementById("phone").value;
+              document.getElementById("verify-phone").value = phone;
+              requestForm.hidden = true;
+              const codeStep = document.getElementById("code-step");
+              codeStep.hidden = false;
+              const codeInput = document.getElementById("code");
+              codeInput.focus();
+              try {{
+                const response = await fetch(requestForm.action, {{
+                  method: "POST",
+                  body: new FormData(requestForm),
+                }});
+                const result = await response.text();
+                if (!response.ok || !result.includes('id="code"')) {{
+                  document.open();
+                  document.write(result);
+                  document.close();
+                }}
+              }} catch (error) {{
+                requestForm.submit();
+              }}
+            }});
+          </script>
         </main>
       </body>
     </html>
