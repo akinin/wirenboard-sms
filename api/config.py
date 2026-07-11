@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     mmcli_modem_id: str = "any"
 
     unifi_base_url: Optional[str] = None
+    unifi_api_key: Optional[SecretStr] = None
     unifi_username: Optional[str] = None
     unifi_password: Optional[SecretStr] = None
     unifi_site: str = "default"

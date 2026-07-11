@@ -235,6 +235,7 @@ fi
 prompt sms_backend "SMS backend: mqtt or mmcli" "mqtt"
 prompt mmcli_modem_id "MMCLI modem id" "auto"
 unifi_base_url=""
+unifi_api_key=""
 unifi_username=""
 unifi_password=""
 unifi_site="default"
@@ -245,8 +246,11 @@ telegram_chat_id=""
 telegram_bot_token=""
 if component_enabled hotspot; then
   prompt unifi_base_url "UniFi base URL" "https://10.10.1.1"
-  prompt unifi_username "UniFi local username"
-  prompt_secret unifi_password "UniFi local password"
+  prompt_secret unifi_api_key "UniFi API key (recommended; blank for local account)"
+  if [ -z "$unifi_api_key" ]; then
+    prompt unifi_username "UniFi local username"
+    prompt_secret unifi_password "UniFi local password"
+  fi
   prompt unifi_site "UniFi site" "default"
   prompt unifi_verify_tls "Verify UniFi TLS: true or false" "false"
   prompt unifi_auth_minutes "Guest authorization minutes" "1440"
@@ -284,6 +288,7 @@ MMCLI_MODEM_ID=$mmcli_modem_id
 
 # UniFi Network
 UNIFI_BASE_URL=$unifi_base_url
+UNIFI_API_KEY=$(quote_env "$unifi_api_key")
 UNIFI_USERNAME=$unifi_username
 UNIFI_PASSWORD=$(quote_env "$unifi_password")
 UNIFI_SITE=$unifi_site

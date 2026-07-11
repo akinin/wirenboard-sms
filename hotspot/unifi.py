@@ -10,24 +10,52 @@ from api.config import Settings
 class UniFiClient:
     settings: Settings
 
+    @property
+    def _uses_api_key(self) -> bool:
+        return bool(
+            self.settings.unifi_api_key
+            and self.settings.unifi_api_key.get_secret_value().strip()
+        )
+
+    def _check_configuration(self) -> None:
+        if not self.settings.unifi_base_url:
+            raise RuntimeError("UNIFI_BASE_URL is not configured")
+        if not self._uses_api_key and (
+            not self.settings.unifi_username or not self.settings.unifi_password
+        ):
+            raise RuntimeError(
+                "Set UNIFI_API_KEY (recommended) or UNIFI_USERNAME and UNIFI_PASSWORD"
+            )
+
+    def _client_options(self) -> dict[str, object]:
+        headers = {"Accept": "application/json"}
+        if self._uses_api_key:
+            headers["X-API-Key"] = self.settings.unifi_api_key.get_secret_value()
+        return {
+            "base_url": self.settings.unifi_base_url.rstrip("/"),
+            "verify": self.settings.unifi_verify_tls,
+            "timeout": 15,
+            "follow_redirects": True,
+            "headers": headers,
+        }
+
     async def authorize_guest(
         self,
         client_mac: str,
         minutes: Optional[int] = None,
         ap_mac: Optional[str] = None,
     ) -> None:
-        if not self.settings.unifi_base_url:
-            raise RuntimeError("UNIFI_BASE_URL is not configured")
-        if not self.settings.unifi_username or not self.settings.unifi_password:
-            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
+        self._check_configuration()
 
         auth_minutes = minutes or self.settings.unifi_auth_minutes
-        async with httpx.AsyncClient(
-            base_url=self.settings.unifi_base_url.rstrip("/"),
-            verify=self.settings.unifi_verify_tls,
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
+        async with httpx.AsyncClient(**self._client_options()) as client:
+            if self._uses_api_key:
+                await self._integration_client_action(
+                    client,
+                    client_mac,
+                    {"action": "AUTHORIZE_GUEST_ACCESS", "timeLimitMinutes": auth_minutes},
+                )
+                return
             await self._login(client)
             await self._post_unifi_command(
                 client,
@@ -36,17 +64,11 @@ class UniFiClient:
             )
 
     async def find_client_mac_by_ip(self, client_ip: str) -> Optional[str]:
-        if not self.settings.unifi_base_url:
-            raise RuntimeError("UNIFI_BASE_URL is not configured")
-        if not self.settings.unifi_username or not self.settings.unifi_password:
-            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
-
-        async with httpx.AsyncClient(
-            base_url=self.settings.unifi_base_url.rstrip("/"),
-            verify=self.settings.unifi_verify_tls,
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
+        self._check_configuration()
+        async with httpx.AsyncClient(**self._client_options()) as client:
+            if self._uses_api_key:
+                clients = await self._integration_clients(client, ip_address=client_ip)
+                return str(clients[0]["macAddress"]).lower() if clients else None
             await self._login(client)
             data = await self._get_unifi_data(client, f"/proxy/network/api/s/{self.settings.unifi_site}/stat/sta")
             if data is None:
@@ -61,17 +83,10 @@ class UniFiClient:
         return None
 
     async def list_clients(self) -> list[dict[str, object]]:
-        if not self.settings.unifi_base_url:
-            raise RuntimeError("UNIFI_BASE_URL is not configured")
-        if not self.settings.unifi_username or not self.settings.unifi_password:
-            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
-
-        async with httpx.AsyncClient(
-            base_url=self.settings.unifi_base_url.rstrip("/"),
-            verify=self.settings.unifi_verify_tls,
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
+        self._check_configuration()
+        async with httpx.AsyncClient(**self._client_options()) as client:
+            if self._uses_api_key:
+                return [self._legacy_client_shape(item) for item in await self._integration_clients(client)]
             await self._login(client)
             data = await self._get_unifi_data(client, f"/proxy/network/api/s/{self.settings.unifi_site}/stat/sta")
             if data is None:
@@ -80,17 +95,14 @@ class UniFiClient:
 
     async def is_guest_authorized(self, client_mac: str) -> Optional[bool]:
         client_mac = client_mac.lower()
-        if not self.settings.unifi_base_url:
-            raise RuntimeError("UNIFI_BASE_URL is not configured")
-        if not self.settings.unifi_username or not self.settings.unifi_password:
-            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
-
-        async with httpx.AsyncClient(
-            base_url=self.settings.unifi_base_url.rstrip("/"),
-            verify=self.settings.unifi_verify_tls,
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
+        self._check_configuration()
+        async with httpx.AsyncClient(**self._client_options()) as client:
+            if self._uses_api_key:
+                clients = await self._integration_clients(client, mac_address=client_mac)
+                if not clients:
+                    return None
+                authorized = (clients[0].get("access") or {}).get("authorized")
+                return authorized if isinstance(authorized, bool) else None
             await self._login(client)
             data = await self._get_unifi_data(client, f"/proxy/network/api/s/{self.settings.unifi_site}/stat/sta")
             if data is None:
@@ -113,17 +125,13 @@ class UniFiClient:
         return None
 
     async def unauthorize_guest(self, client_mac: str) -> None:
-        if not self.settings.unifi_base_url:
-            raise RuntimeError("UNIFI_BASE_URL is not configured")
-        if not self.settings.unifi_username or not self.settings.unifi_password:
-            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
-
-        async with httpx.AsyncClient(
-            base_url=self.settings.unifi_base_url.rstrip("/"),
-            verify=self.settings.unifi_verify_tls,
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
+        self._check_configuration()
+        async with httpx.AsyncClient(**self._client_options()) as client:
+            if self._uses_api_key:
+                await self._integration_client_action(
+                    client, client_mac, {"action": "UNAUTHORIZE_GUEST_ACCESS"}
+                )
+                return
             await self._login(client)
             await self._post_unifi_command(
                 client,
@@ -132,23 +140,93 @@ class UniFiClient:
             )
 
     async def block_client(self, client_mac: str) -> None:
-        if not self.settings.unifi_base_url:
-            raise RuntimeError("UNIFI_BASE_URL is not configured")
-        if not self.settings.unifi_username or not self.settings.unifi_password:
-            raise RuntimeError("UNIFI_USERNAME and UNIFI_PASSWORD are required")
+        self._check_configuration()
+        if self._uses_api_key:
+            raise RuntimeError(
+                "Blocking clients is not supported by the official UniFi Integration API"
+            )
 
-        async with httpx.AsyncClient(
-            base_url=self.settings.unifi_base_url.rstrip("/"),
-            verify=self.settings.unifi_verify_tls,
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
+        async with httpx.AsyncClient(**self._client_options()) as client:
             await self._login(client)
             await self._post_unifi_command(
                 client,
                 "stamgr",
                 {"cmd": "block-sta", "mac": client_mac.lower()},
             )
+
+    async def _integration_site_id(self, client: httpx.AsyncClient) -> str:
+        response = await client.get("/proxy/network/integration/v1/sites", params={"limit": 100})
+        self._raise_integration_error(response)
+        sites = response.json().get("data", [])
+        configured = self.settings.unifi_site.lower()
+        for site in sites:
+            values = (site.get("id"), site.get("internalReference"), site.get("name"))
+            if any(str(value).lower() == configured for value in values if value is not None):
+                return str(site["id"])
+        available = ", ".join(str(site.get("name") or site.get("internalReference")) for site in sites)
+        raise RuntimeError(
+            f"UniFi site '{self.settings.unifi_site}' not found"
+            + (f"; available: {available}" if available else "")
+        )
+
+    async def _integration_clients(
+        self,
+        client: httpx.AsyncClient,
+        mac_address: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> list[dict[str, object]]:
+        site_id = await self._integration_site_id(client)
+        params: dict[str, object] = {"limit": 100}
+        if mac_address:
+            params["filter"] = f"macAddress.eq('{mac_address.upper()}')"
+        elif ip_address:
+            params["filter"] = f"ipAddress.eq('{ip_address}')"
+        response = await client.get(
+            f"/proxy/network/integration/v1/sites/{site_id}/clients", params=params
+        )
+        self._raise_integration_error(response)
+        data = response.json().get("data", [])
+        return data if isinstance(data, list) else []
+
+    async def _integration_client_action(
+        self,
+        client: httpx.AsyncClient,
+        client_mac: str,
+        payload: dict[str, object],
+    ) -> None:
+        clients = await self._integration_clients(client, mac_address=client_mac)
+        if not clients:
+            raise RuntimeError(f"UniFi client {client_mac.lower()} not found")
+        site_id = await self._integration_site_id(client)
+        response = await client.post(
+            f"/proxy/network/integration/v1/sites/{site_id}/clients/{clients[0]['id']}/actions",
+            json=payload,
+        )
+        self._raise_integration_error(response)
+
+    @staticmethod
+    def _raise_integration_error(response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        if response.status_code in (401, 403):
+            raise RuntimeError(
+                f"UniFi API key was rejected (HTTP {response.status_code}); check the key and permissions"
+            )
+        if response.status_code == 404:
+            raise RuntimeError(
+                "Official UniFi Integration API is unavailable; update UniFi Network or use a local account"
+            )
+        response.raise_for_status()
+
+    @staticmethod
+    def _legacy_client_shape(item: dict[str, object]) -> dict[str, object]:
+        access = item.get("access") if isinstance(item.get("access"), dict) else {}
+        return {
+            **item,
+            "mac": item.get("macAddress"),
+            "ip": item.get("ipAddress"),
+            "authorized": access.get("authorized"),
+        }
 
     async def _login(self, client: httpx.AsyncClient) -> None:
         password = self.settings.unifi_password.get_secret_value()

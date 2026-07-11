@@ -337,8 +337,9 @@ MMCLI_MODEM_ID=auto
 OTP_MESSAGE_TEMPLATE=Wi-Fi code: {code}
 
 UNIFI_BASE_URL=https://10.10.1.1
-UNIFI_USERNAME=local-unifi-admin
-UNIFI_PASSWORD=local-unifi-password
+UNIFI_API_KEY=<network-integration-api-key>
+UNIFI_USERNAME=
+UNIFI_PASSWORD=
 UNIFI_SITE=default
 UNIFI_VERIFY_TLS=false
 UNIFI_AUTH_MINUTES=1440
@@ -353,10 +354,15 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
+Рекомендуемый способ — API-ключ из `UniFi Network → Control Plane → Integrations`.
+При заданном `UNIFI_API_KEY` логин и пароль не используются. Требуется UniFi Network
+с официальным Integration API (9.1.105 или новее).
+
 Для UniFi OS `UNIFI_BASE_URL` обычно выглядит как
 `https://<unifi-address>:443`. Для self-hosted UniFi Network controller часто
-используется `https://<unifi-address>:8443`. Нужен локальный UniFi admin без
-MFA.
+используется `https://<unifi-address>:8443`. Для старых версий без Integration API
+можно оставить `UNIFI_API_KEY` пустым и указать локального UniFi admin без MFA в
+`UNIFI_USERNAME` и `UNIFI_PASSWORD`.
 
 В UniFi Network:
 
