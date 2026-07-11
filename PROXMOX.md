@@ -20,6 +20,29 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/akinin/wirenboard-sms/ma
 Админку можно закрыть firewall-ом от гостевой сети, оставив гостям доступ
 только к порту `8880`.
 
+## Авторизация в UniFi
+
+Рекомендуется использовать официальный API-ключ. Создайте его в:
+
+```text
+UniFi Network → Control Plane → Integrations
+```
+
+При установке вставьте ключ в запрос `UniFi API key`. В созданном `.env` это
+будет выглядеть так:
+
+```env
+UNIFI_BASE_URL=https://10.10.1.1
+UNIFI_API_KEY=<network-integration-api-key>
+UNIFI_USERNAME=
+UNIFI_PASSWORD=
+UNIFI_SITE=default
+```
+
+Если оставить API-ключ пустым, установщик запросит логин и пароль локального
+администратора UniFi без MFA. Этот режим предназначен для старых версий UniFi
+Network без Integration API.
+
 ## Дефолтные параметры LXC
 
 Если просто нажимать Enter, будут использованы:
