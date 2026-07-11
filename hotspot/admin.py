@@ -51,6 +51,7 @@ TEXT = {
         "empty_archive": "Archive is empty",
         "revoke": "Revoke",
         "block": "Block",
+        "theme": "Toggle theme",
         "portal_saved": "Portal settings updated",
         "sms_sent": "Test SMS sent",
     },
@@ -84,6 +85,7 @@ TEXT = {
         "empty_archive": "Архив пуст",
         "revoke": "Отозвать",
         "block": "Блокировать",
+        "theme": "Сменить тему",
         "portal_saved": "Настройки портала сохранены",
         "sms_sent": "Тестовая SMS отправлена",
     },
@@ -152,13 +154,15 @@ async def extend_client(
     settings: Settings = Depends(require_admin),
     store: Store = Depends(get_store),
 ):
-    if days not in (1, 2, 7, 14, 30, 365):
+    if days not in (1, 2, 7, 365):
         return _redirect(error="Invalid duration", lang=lang)
     hotspot_store = HotspotStore(store)
     session = hotspot_store.get_session(client_mac)
     if not session:
         return _redirect(error="Client was not found", lang=lang)
-    minutes = days * 24 * 60
+    now = int(time.time())
+    remaining_minutes = max(0, int(session["valid_until"] or now) - now) // 60
+    minutes = remaining_minutes + days * 24 * 60
     try:
         await UniFiClient(settings).authorize_guest(
             client_mac,
@@ -379,9 +383,10 @@ def _active_table(
             f"<td>{_dt(session['valid_until'])}</td>"
             f"<td>{_extend_actions(mac, lang)}</td>"
             f"<td>{_revoke_actions(mac, lang)}</td>"
+            f"<td>{_block_action(mac, lang)}</td>"
             "</tr>"
         )
-    body = "\n".join(rows) if rows else f"<tr><td colspan='7' class='empty'>{_t(lang, 'no_active')}</td></tr>"
+    body = "\n".join(rows) if rows else f"<tr><td colspan='8' class='empty'>{_t(lang, 'no_active')}</td></tr>"
     return f"""
     <section>
       <div class="section-head"><h2>{_t(lang, "active_clients")}</h2>{_tabs(lang, "active")}</div>
@@ -389,7 +394,7 @@ def _active_table(
         <thead>
           <tr>
             <th>{_t(lang, "client")}</th><th>{_t(lang, "phone")}</th><th>{_t(lang, "ip")}</th><th>{_t(lang, "authorized")}</th>
-            <th>{_t(lang, "valid_until")}</th><th>{_t(lang, "extend")}</th><th>{_t(lang, "revoke")}</th>
+            <th>{_t(lang, "valid_until")}</th><th>{_t(lang, "extend")}</th><th>{_t(lang, "revoke")}</th><th>{_t(lang, "block")}</th>
           </tr>
         </thead>
         <tbody>{body}</tbody>
@@ -412,8 +417,8 @@ def _client_identity(session, client: dict[str, Any], mac: str, lang: str) -> st
 
 def _extend_actions(mac: str, lang: str = "en") -> str:
     options = "".join(
-        f"<button name='days' value='{days}'>{days}d</button>"
-        for days in (1, 2, 7, 14, 30, 365)
+        f"<button name='days' value='{days}'>+{days}d</button>"
+        for days in (1, 2, 7, 365)
     )
     return f"""
     <div class="actions">
@@ -426,6 +431,13 @@ def _revoke_actions(mac: str, lang: str = "en") -> str:
     return f"""
     <div class="actions">
       <form method="post" action="/admin/clients/{html.escape(mac)}/revoke"><input type="hidden" name="lang" value="{html.escape(lang)}"><button>{_t(lang, "revoke")}</button></form>
+    </div>
+    """
+
+
+def _block_action(mac: str, lang: str = "en") -> str:
+    return f"""
+    <div class="actions">
       <form method="post" action="/admin/clients/{html.escape(mac)}/block"><input type="hidden" name="lang" value="{html.escape(lang)}"><button class="danger">{_t(lang, "block")}</button></form>
     </div>
     """
@@ -527,12 +539,18 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="icon" href="/assets/hotspot-logo">
         <title>{html.escape(title)} - SMS Gateway Admin</title>
+        <script>
+          const savedTheme = localStorage.getItem("sms-theme");
+          const initialTheme = savedTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.dataset.theme = initialTheme;
+        </script>
         <style>
           * {{ box-sizing: border-box; }}
           body {{ margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: #f4f5f6; color: #18212b; }}
           header {{ position: relative; display: flex; justify-content: flex-start; align-items: center; padding: 15px 112px 15px 28px; background: #fff; color: #18212b; border-bottom: 1px solid #e5e7ea; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
           header h1 {{ margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.01em; }}
-          .language {{ position: absolute; right: 28px; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; }}
+          .header-controls {{ position: absolute; right: 28px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 12px; }}
+          .language {{ display: flex; gap: 6px; }}
           .language a, .tabs a {{ color: #64748b; text-decoration: none; font-weight: 800; }}
           .language a {{ color: #88919b; font-size: 12px; }}
           .language a.active {{ color: #006fff; }}
@@ -547,7 +565,9 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           th, td {{ padding: 12px 14px; border-bottom: 1px solid #edf0f2; text-align: left; vertical-align: top; font-size: 13px; }}
           th {{ background: #f8f9fa; color: #69727d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }}
           small {{ display: block; color: #64748b; margin-top: 3px; }}
-          form.settings, form.test-sms {{ display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; gap: 14px; align-items: end; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
+          form.settings, form.test-sms {{ display: grid; gap: 14px; align-items: end; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
+          form.settings {{ grid-template-columns: minmax(320px, 1fr) 90px 110px; align-items: center; }}
+          form.test-sms {{ grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; }}
           label {{ display: grid; gap: 6px; font-size: 13px; color: #475569; font-weight: 700; }}
           input {{ border: 1px solid #cfd4da; border-radius: 6px; padding: 9px 10px; background: #fff; font: inherit; outline: none; }}
           input:focus {{ border-color: #006fff; box-shadow: 0 0 0 2px rgba(0,111,255,.14); }}
@@ -559,6 +579,7 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           button {{ border: 0; border-radius: 6px; padding: 8px 10px; background: #006fff; color: #fff; font-weight: 600; cursor: pointer; }}
           button:hover {{ background: #0062e5; }}
           .save-button {{ min-width: 96px; width: auto; justify-self: start; min-height: 38px; padding: 0 16px; }}
+          .settings .save-button {{ width: 100%; justify-self: stretch; }}
           button.danger {{ background: #b91c1c; }}
           .actions {{ display: grid; gap: 8px; min-width: 260px; }}
           .actions form {{ display: flex; flex-wrap: wrap; gap: 6px; }}
@@ -574,6 +595,25 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           .badge.active {{ background: #dcfce7; color: #166534; }}
           .badge.revoked {{ background: #fef3c7; color: #92400e; }}
           .badge.blocked {{ background: #fee2e2; color: #991b1b; }}
+          .theme-toggle {{ width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 1px solid #dfe3e8; border-radius: 8px; background: #f7f8f9; color: #5f6873; }}
+          .theme-toggle:hover {{ background: #eef5ff; color: #006fff; }}
+          .theme-toggle svg {{ width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }}
+          .moon-icon {{ display: none; }}
+          [data-theme="dark"] {{ color-scheme: dark; }}
+          [data-theme="dark"] body {{ background: #11151a; color: #e8eaed; }}
+          [data-theme="dark"] header {{ background: #181d23; color: #f2f4f6; border-color: #2c333b; box-shadow: none; }}
+          [data-theme="dark"] h2, [data-theme="dark"] .client-display {{ color: #e8eaed; }}
+          [data-theme="dark"] form.settings, [data-theme="dark"] form.test-sms, [data-theme="dark"] table {{ background: #181d23; border-color: #303741; box-shadow: none; }}
+          [data-theme="dark"] th {{ background: #20262d; color: #9aa3ad; }}
+          [data-theme="dark"] th, [data-theme="dark"] td {{ border-bottom-color: #2b323a; }}
+          [data-theme="dark"] label, [data-theme="dark"] small {{ color: #a6afb9; }}
+          [data-theme="dark"] input {{ background: #11161c; border-color: #3a424c; color: #edf0f2; }}
+          [data-theme="dark"] .logo-preview {{ background: #11161c; border-color: #3a424c; }}
+          [data-theme="dark"] .tabs {{ background: #262c33; }}
+          [data-theme="dark"] .tabs a.active {{ background: #3a424c; color: #fff; box-shadow: none; }}
+          [data-theme="dark"] .theme-toggle {{ background: #242a31; border-color: #3a424c; color: #d6dbe0; }}
+          [data-theme="dark"] .sun-icon {{ display: none; }}
+          [data-theme="dark"] .moon-icon {{ display: block; }}
           @media (max-width: 900px) {{
             header {{ justify-content: flex-start; padding-right: 96px; }}
             .section-head {{ display: block; }}
@@ -586,7 +626,13 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
       <body>
         <header>
           <h1>SMS Gateway Admin</h1>
-          <div class="language"><a href="?lang=ru" {ru_active}>RU</a><a href="?lang=en" {en_active}>EN</a></div>
+          <div class="header-controls">
+            <div class="language"><a href="?lang=ru" {ru_active}>RU</a><a href="?lang=en" {en_active}>EN</a></div>
+            <button id="theme-toggle" class="theme-toggle" type="button" title="{_t(lang, 'theme')}" aria-label="{_t(lang, 'theme')}">
+              <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path></svg>
+              <svg class="moon-icon" viewBox="0 0 24 24"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path></svg>
+            </button>
+          </div>
         </header>
         <main>{content}</main>
         <script>
@@ -597,6 +643,11 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
               if (logoInput.files.length) logoPreview.src = URL.createObjectURL(logoInput.files[0]);
             }});
           }}
+          document.getElementById("theme-toggle").addEventListener("click", () => {{
+            const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+            document.documentElement.dataset.theme = next;
+            localStorage.setItem("sms-theme", next);
+          }});
           document.querySelectorAll(".client-display").forEach((display) => {{
             display.addEventListener("click", () => {{
               const form = display.parentElement.querySelector(".client-name");
