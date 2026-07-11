@@ -669,6 +669,18 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           [data-theme="dark"] .export-button {{ background: #181d23; border-color: #3a424c; color: #d6dbe0; }}
           [data-theme="dark"] .sun-icon {{ display: none; }}
           [data-theme="dark"] .moon-icon {{ display: block; }}
+          @media (max-width: 1200px) {{
+            .active-table {{ display: block; table-layout: auto; border: 0; background: transparent; box-shadow: none; overflow: visible; }}
+            .active-table colgroup, .active-table thead {{ display: none; }}
+            .active-table tbody {{ display: grid; gap: 12px; }}
+            .active-table tr {{ display: block; overflow: hidden; border: 1px solid #e1e4e8; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
+            .active-table td {{ display: grid; grid-template-columns: minmax(125px, 28%) 1fr; gap: 12px; align-items: start; width: 100%; padding: 11px 13px; white-space: normal !important; }}
+            .active-table td::before {{ content: attr(data-label); color: #7a838d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }}
+            .active-table td:last-child {{ border-bottom: 0; }}
+            .active-table .actions {{ width: 100%; }}
+            .active-table .actions form {{ justify-content: flex-start; }}
+            [data-theme="dark"] .active-table tr {{ background: #181d23; border-color: #303741; box-shadow: none; }}
+          }}
           @media (max-width: 900px) {{
             header {{ justify-content: flex-start; padding-right: 96px; }}
             .section-head {{ display: flex; flex-wrap: wrap; align-items: center; }}
@@ -681,16 +693,7 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
             form.settings .logo-preview {{ width: 64px; height: 64px; }}
             form.settings .save-button {{ grid-column: 1; grid-row: 2; width: auto; justify-self: start; }}
             form.test-sms {{ grid-template-columns: 1fr; }}
-            .active-table {{ display: block; table-layout: auto; border: 0; background: transparent; box-shadow: none; overflow: visible; }}
-            .active-table colgroup, .active-table thead {{ display: none; }}
-            .active-table tbody {{ display: grid; gap: 12px; }}
-            .active-table tr {{ display: block; overflow: hidden; border: 1px solid #e1e4e8; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
-            .active-table td {{ display: grid; grid-template-columns: minmax(105px, 38%) 1fr; gap: 10px; align-items: start; width: 100%; padding: 11px 13px; white-space: normal !important; }}
-            .active-table td::before {{ content: attr(data-label); color: #7a838d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }}
-            .active-table td:last-child {{ border-bottom: 0; }}
-            .active-table .actions {{ width: 100%; }}
-            .active-table .actions form {{ justify-content: flex-start; }}
-            [data-theme="dark"] .active-table tr {{ background: #181d23; border-color: #303741; box-shadow: none; }}
+            .active-table td {{ grid-template-columns: minmax(105px, 38%) 1fr; gap: 10px; }}
           }}
           @media (max-width: 520px) {{
             .section-head {{ align-items: flex-start; }}
