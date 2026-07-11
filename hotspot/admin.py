@@ -408,14 +408,14 @@ def _active_table(
         client = unifi_clients.get(mac, {})
         rows.append(
             "<tr>"
-            f"<td>{_client_identity(session, client, mac, lang)}</td>"
-            f"<td>{html.escape(str(session['phone']))}</td>"
-            f"<td>{html.escape(str(client.get('ip') or ''))}</td>"
-            f"<td>{_dt(session['authorized_at'])}</td>"
-            f"<td>{_dt(session['valid_until'])}</td>"
-            f"<td>{_extend_actions(mac, lang)}</td>"
-            f"<td>{_revoke_actions(mac, lang)}</td>"
-            f"<td>{_block_action(mac, lang)}</td>"
+            f"<td data-label='{_t(lang, 'client')}'>{_client_identity(session, client, mac, lang)}</td>"
+            f"<td data-label='{_t(lang, 'phone')}'>{html.escape(str(session['phone']))}</td>"
+            f"<td data-label='{_t(lang, 'ip')}'>{html.escape(str(client.get('ip') or ''))}</td>"
+            f"<td data-label='{_t(lang, 'authorized')}'>{_dt(session['authorized_at'])}</td>"
+            f"<td data-label='{_t(lang, 'valid_until')}'>{_dt(session['valid_until'])}</td>"
+            f"<td data-label='{_t(lang, 'extend')}'>{_extend_actions(mac, lang)}</td>"
+            f"<td data-label='{_t(lang, 'revoke')}'>{_revoke_actions(mac, lang)}</td>"
+            f"<td data-label='{_t(lang, 'block')}'>{_block_action(mac, lang)}</td>"
             "</tr>"
         )
     body = "\n".join(rows) if rows else f"<tr><td colspan='8' class='empty'>{_t(lang, 'no_active')}</td></tr>"
@@ -607,16 +607,16 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
           th, td {{ padding: 12px 14px; border-bottom: 1px solid #edf0f2; text-align: left; vertical-align: top; font-size: 13px; }}
           th {{ background: #f8f9fa; color: #69727d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }}
           .active-table {{ table-layout: fixed; }}
-          .active-table .col-client {{ width: 19%; }}
-          .active-table .col-phone {{ width: 12%; }}
-          .active-table .col-ip {{ width: 9%; }}
-          .active-table .col-date {{ width: 13%; }}
-          .active-table .col-extend {{ width: 19%; }}
-          .active-table .col-action {{ width: 7%; }}
+          .active-table .col-client {{ width: 17%; }}
+          .active-table .col-phone {{ width: 11%; }}
+          .active-table .col-ip {{ width: 8%; }}
+          .active-table .col-date {{ width: 12%; }}
+          .active-table .col-extend {{ width: 20%; }}
+          .active-table .col-action {{ width: 10%; }}
           .active-table td:nth-child(4), .active-table td:nth-child(5) {{ white-space: nowrap; }}
           small {{ display: block; color: #64748b; margin-top: 3px; }}
           form.settings, form.test-sms {{ display: grid; gap: 14px; align-items: end; background: #fff; border: 1px solid #e1e4e8; border-radius: 10px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
-          form.settings {{ grid-template-columns: minmax(320px, 1fr) 90px 110px; align-items: center; }}
+          form.settings {{ grid-template-columns: minmax(320px, 1fr) 90px 110px; align-items: end; }}
           form.test-sms {{ grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; }}
           label {{ display: grid; gap: 6px; font-size: 13px; color: #475569; font-weight: 700; }}
           input {{ border: 1px solid #cfd4da; border-radius: 6px; padding: 9px 10px; background: #fff; font: inherit; outline: none; }}
@@ -676,7 +676,16 @@ def _layout(title: str, content: str, active_tab: str, lang: str) -> str:
             .table-tools {{ align-items: flex-start; margin-top: 10px; }}
             main {{ padding: 14px; overflow-x: auto; }}
             form.settings, form.test-sms {{ grid-template-columns: 1fr; }}
-            .active-table {{ min-width: 1050px; }}
+            .active-table {{ display: block; table-layout: auto; border: 0; background: transparent; box-shadow: none; overflow: visible; }}
+            .active-table colgroup, .active-table thead {{ display: none; }}
+            .active-table tbody {{ display: grid; gap: 12px; }}
+            .active-table tr {{ display: block; overflow: hidden; border: 1px solid #e1e4e8; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.03); }}
+            .active-table td {{ display: grid; grid-template-columns: minmax(105px, 38%) 1fr; gap: 10px; align-items: start; width: 100%; padding: 11px 13px; white-space: normal !important; }}
+            .active-table td::before {{ content: attr(data-label); color: #7a838d; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }}
+            .active-table td:last-child {{ border-bottom: 0; }}
+            .active-table .actions {{ width: 100%; }}
+            .active-table .actions form {{ justify-content: flex-start; }}
+            [data-theme="dark"] .active-table tr {{ background: #181d23; border-color: #303741; box-shadow: none; }}
           }}
         </style>
       </head>
